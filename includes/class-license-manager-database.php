@@ -398,6 +398,7 @@ class License_Manager_Database {
             'yearly' => __('Yıllık', 'license-manager'),
             'lifetime' => __('Yaşam Boyu', 'license-manager'),
             'trial' => __('Deneme', 'license-manager'),
+            'demo' => __('Demo', 'license-manager'),
         );
         
         foreach ($types as $slug => $name) {

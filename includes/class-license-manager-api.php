@@ -22,6 +22,11 @@ class License_Manager_API {
     public function __construct() {
         // Standard REST API route registration
         add_action('rest_api_init', array($this, 'register_routes'));
+        
+        // Add custom rewrite rules for /api endpoints
+        add_action('init', array($this, 'add_custom_rewrite_rules'));
+        add_action('query_vars', array($this, 'add_query_vars'));
+        add_action('template_redirect', array($this, 'handle_custom_api_requests'));
     }
     
     /**
@@ -445,5 +450,105 @@ class License_Manager_API {
         );
         
         return isset($messages[$status]) ? $messages[$status] : __('Bilinmeyen durum', 'license-manager');
+    }
+    
+    /**
+     * Add custom rewrite rules for /api endpoints
+     */
+    public function add_custom_rewrite_rules() {
+        add_rewrite_rule('^api/validate_license/?$', 'index.php?balkay_api=validate_license', 'top');
+        add_rewrite_tag('%balkay_api%', '([^&]+)');
+        
+        // Force flush rewrite rules on plugin activation/update
+        if (get_option('balkay_license_rewrite_flushed') !== BALKAY_LICENSE_VERSION) {
+            flush_rewrite_rules();
+            update_option('balkay_license_rewrite_flushed', BALKAY_LICENSE_VERSION);
+        }
+    }
+    
+    /**
+     * Add custom query vars
+     */
+    public function add_query_vars($vars) {
+        $vars[] = 'balkay_api';
+        return $vars;
+    }
+    
+    /**
+     * Handle custom API requests
+     */
+    public function handle_custom_api_requests() {
+        $api_action = get_query_var('balkay_api');
+        
+        if ($api_action === 'validate_license') {
+            $this->handle_validate_license_api();
+        }
+    }
+    
+    /**
+     * Handle /api/validate_license endpoint
+     */
+    private function handle_validate_license_api() {
+        // Set JSON header
+        header('Content-Type: application/json');
+        
+        $method = $_SERVER['REQUEST_METHOD'];
+        
+        // Support both GET and POST methods
+        if (!in_array($method, ['GET', 'POST'])) {
+            http_response_code(405);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Only GET and POST methods allowed'
+            ));
+            exit;
+        }
+        
+        $data = array();
+        
+        if ($method === 'POST') {
+            // Get POST data
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true);
+            
+            // Also check $_POST for form data
+            if (!$data && !empty($_POST)) {
+                $data = $_POST;
+            }
+        } else {
+            // GET request - get parameters from query string
+            $data = $_GET;
+        }
+        
+        // Validate required parameters
+        if (empty($data['license_key']) || empty($data['domain'])) {
+            http_response_code(400);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'license_key and domain are required'
+            ));
+            exit;
+        }
+        
+        // Sanitize input
+        $license_key = sanitize_text_field($data['license_key']);
+        $domain = sanitize_text_field($data['domain']);
+        $action = isset($data['action']) ? sanitize_text_field($data['action']) : 'validate';
+        
+        // Create a WP_REST_Request object to use the existing validation logic
+        $request = new WP_REST_Request('POST');
+        $request->set_param('license_key', $license_key);
+        $request->set_param('domain', $domain);
+        $request->set_param('action', $action);
+        
+        // Use the existing validate_license method
+        $response = $this->validate_license($request);
+        
+        // Set the HTTP status code
+        http_response_code($response->get_status());
+        
+        // Output the JSON response
+        echo json_encode($response->get_data());
+        exit;
     }
 }
