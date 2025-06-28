@@ -967,17 +967,19 @@ class Insurance_CRM_License_Manager {
  * @param string $module Module name
  * @return bool True if access allowed
  */
-function insurance_crm_can_access_module($module) {
-    global $insurance_crm_license_manager;
-    
-    if ($insurance_crm_license_manager) {
-        return $insurance_crm_license_manager->is_module_allowed($module);
+if (!function_exists('insurance_crm_can_access_module')) {
+    function insurance_crm_can_access_module($module) {
+        global $insurance_crm_license_manager;
+        
+        if ($insurance_crm_license_manager) {
+            return $insurance_crm_license_manager->is_module_allowed($module);
+        }
+        
+        // Fallback check if license manager not available
+        return !empty(get_option('insurance_crm_license_modules', array())) ? 
+               in_array($module, get_option('insurance_crm_license_modules', array())) : 
+               true;
     }
-    
-    // Fallback check if license manager not available
-    return !empty(get_option('insurance_crm_license_modules', array())) ? 
-           in_array($module, get_option('insurance_crm_license_modules', array())) : 
-           true;
 }
 
 /**
@@ -986,25 +988,27 @@ function insurance_crm_can_access_module($module) {
  * @param string $module Module name
  * @param bool $die Whether to stop execution
  */
-function insurance_crm_show_module_restriction($module = '', $die = false) {
-    global $insurance_crm_license_manager;
-    
-    if ($insurance_crm_license_manager) {
-        $insurance_crm_license_manager->show_module_restriction_notice($module, $die);
-        return;
-    }
-    
-    // Fallback message
-    $message = !empty($module) ? 
-               sprintf('Bu özellik (%s) için lisansınız bulunmamaktadır.', $module) :
-               'Bu özellik için lisansınız bulunmamaktadır.';
-    
-    echo '<div class="notice notice-error">';
-    echo '<p><strong>Erişim Kısıtlı:</strong> ' . esc_html($message) . '</p>';
-    echo '</div>';
-    
-    if ($die) {
-        wp_die($message, 'Erişim Kısıtlı', array('response' => 403));
+if (!function_exists('insurance_crm_show_module_restriction')) {
+    function insurance_crm_show_module_restriction($module = '', $die = false) {
+        global $insurance_crm_license_manager;
+        
+        if ($insurance_crm_license_manager) {
+            $insurance_crm_license_manager->show_module_restriction_notice($module, $die);
+            return;
+        }
+        
+        // Fallback message
+        $message = !empty($module) ? 
+                   sprintf('Bu özellik (%s) için lisansınız bulunmamaktadır.', $module) :
+                   'Bu özellik için lisansınız bulunmamaktadır.';
+        
+        echo '<div class="notice notice-error">';
+        echo '<p><strong>Erişim Kısıtlı:</strong> ' . esc_html($message) . '</p>';
+        echo '</div>';
+        
+        if ($die) {
+            wp_die($message, 'Erişim Kısıtlı', array('response' => 403));
+        }
     }
 }
 
@@ -1015,16 +1019,18 @@ function insurance_crm_show_module_restriction($module = '', $die = false) {
  * @param bool $die Whether to stop execution (default: true)
  * @return bool True if allowed, false if restricted
  */
-function insurance_crm_require_module_access($module, $die = true) {
-    if (insurance_crm_can_access_module($module)) {
-        return true;
+if (!function_exists('insurance_crm_require_module_access')) {
+    function insurance_crm_require_module_access($module, $die = true) {
+        if (insurance_crm_can_access_module($module)) {
+            return true;
+        }
+        
+        if ($die) {
+            insurance_crm_show_module_restriction($module, true);
+        }
+        
+        return false;
     }
-    
-    if ($die) {
-        insurance_crm_show_module_restriction($module, true);
-    }
-    
-    return false;
 }
 
 /**
@@ -1032,41 +1038,42 @@ function insurance_crm_require_module_access($module, $die = true) {
  * 
  * @return string JavaScript function
  */
-function insurance_crm_get_module_check_js() {
-    global $insurance_crm_license_manager;
-    
-    $licensed_modules = array();
-    if ($insurance_crm_license_manager) {
-        $licensed_modules = $insurance_crm_license_manager->get_licensed_modules();
-    } else {
-        $licensed_modules = get_option('insurance_crm_license_modules', array());
-    }
-    
-    $js_modules = json_encode($licensed_modules);
-    
-    return "
-    <script>
-    window.insuranceCRMLicensedModules = {$js_modules};
-    
-    function checkModuleAccess(module) {
-        return window.insuranceCRMLicensedModules.includes(module);
-    }
-    
-    function showModuleRestriction(module) {
-        const moduleNames = {
-            'dashboard': 'Dashboard',
-            'customers': 'Müşteriler',
-            'policies': 'Poliçeler',
-            'quotes': 'Teklifler',
-            'tasks': 'Görevler',
-            'reports': 'Raporlar',
-            'data_transfer': 'Veri Aktarımı'
-        };
+if (!function_exists('insurance_crm_get_module_check_js')) {
+    function insurance_crm_get_module_check_js() {
+        global $insurance_crm_license_manager;
         
-        const moduleName = moduleNames[module] || module;
-        alert('Bu özellik (' + moduleName + ') için lisansınız bulunmamaktadır. Lütfen lisans sağlayıcınızla iletişime geçin.');
-        return false;
-    }
+        $licensed_modules = array();
+        if ($insurance_crm_license_manager) {
+            $licensed_modules = $insurance_crm_license_manager->get_licensed_modules();
+        } else {
+            $licensed_modules = get_option('insurance_crm_license_modules', array());
+        }
+        
+        $js_modules = json_encode($licensed_modules);
+        
+        return "
+        <script>
+        window.insuranceCRMLicensedModules = {$js_modules};
+        
+        function checkModuleAccess(module) {
+            return window.insuranceCRMLicensedModules.includes(module);
+        }
+        
+        function showModuleRestriction(module) {
+            const moduleNames = {
+                'dashboard': 'Dashboard',
+                'customers': 'Müşteriler',
+                'policies': 'Poliçeler',
+                'quotes': 'Teklifler',
+                'tasks': 'Görevler',
+                'reports': 'Raporlar',
+                'data_transfer': 'Veri Aktarımı'
+            };
+            
+            const moduleName = moduleNames[module] || module;
+            alert('Bu özellik (' + moduleName + ') için lisansınız bulunmamaktadır. Lütfen lisans sağlayıcınızla iletişime geçin.');
+            return false;
+        }
     
     function requireModuleAccess(module) {
         if (!checkModuleAccess(module)) {
@@ -1075,4 +1082,5 @@ function insurance_crm_get_module_check_js() {
         return true;
     }
     </script>";
+    }
 }
