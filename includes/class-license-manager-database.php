@@ -1,0 +1,599 @@
+<?php
+/**
+ * Database Management Class
+ * Handles custom post types, taxonomies, and database operations
+ */
+
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class License_Manager_Database {
+    
+    /**
+     * Constructor
+     */
+    public function __construct() {
+        add_action('init', array($this, 'register_post_types'));
+        add_action('init', array($this, 'register_taxonomies'));
+    }
+    
+    /**
+     * Create custom tables if needed (currently using WordPress post system)
+     */
+    public function create_tables() {
+        // We're using WordPress custom post types instead of custom tables
+        // This method is for future use if custom tables are needed
+    }
+    
+    /**
+     * Register custom post types
+     */
+    public function register_post_types() {
+        $this->register_customer_post_type();
+        $this->register_license_post_type();
+        $this->register_license_package_post_type();
+        $this->register_payment_post_type();
+    }
+    
+    /**
+     * Register Customer post type
+     */
+    private function register_customer_post_type() {
+        $labels = array(
+            'name' => __('Müşteriler', 'license-manager'),
+            'singular_name' => __('Müşteri', 'license-manager'),
+            'menu_name' => __('Müşteriler', 'license-manager'),
+            'add_new' => __('Yeni Müşteri Ekle', 'license-manager'),
+            'add_new_item' => __('Yeni Müşteri Ekle', 'license-manager'),
+            'edit_item' => __('Müşteri Düzenle', 'license-manager'),
+            'new_item' => __('Yeni Müşteri', 'license-manager'),
+            'view_item' => __('Müşteri Görüntüle', 'license-manager'),
+            'search_items' => __('Müşteri Ara', 'license-manager'),
+            'not_found' => __('Müşteri bulunamadı', 'license-manager'),
+            'not_found_in_trash' => __('Çöp kutusunda müşteri bulunamadı', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'public' => false,
+            'show_ui' => true,
+            'show_in_menu' => false, // We'll add this to our custom menu
+            'show_in_admin_bar' => false,
+            'capability_type' => 'post',
+            'capabilities' => array(
+                'edit_post' => 'manage_license_manager',
+                'read_post' => 'manage_license_manager',
+                'delete_post' => 'manage_license_manager',
+                'edit_posts' => 'manage_license_manager',
+                'edit_others_posts' => 'manage_license_manager',
+                'publish_posts' => 'manage_license_manager',
+                'read_private_posts' => 'manage_license_manager',
+            ),
+            'hierarchical' => false,
+            'supports' => array('title', 'editor', 'custom-fields'),
+            'has_archive' => false,
+            'rewrite' => false,
+            'query_var' => false,
+        );
+        
+        register_post_type('lm_customer', $args);
+    }
+    
+    /**
+     * Register License post type
+     */
+    private function register_license_post_type() {
+        $labels = array(
+            'name' => __('Lisanslar', 'license-manager'),
+            'singular_name' => __('Lisans', 'license-manager'),
+            'menu_name' => __('Lisanslar', 'license-manager'),
+            'add_new' => __('Add New License', 'license-manager'),
+            'add_new_item' => __('Add New License', 'license-manager'),
+            'edit_item' => __('Edit License', 'license-manager'),
+            'new_item' => __('New License', 'license-manager'),
+            'view_item' => __('View License', 'license-manager'),
+            'search_items' => __('Search Licenses', 'license-manager'),
+            'not_found' => __('Lisans bulunamadı', 'license-manager'),
+            'not_found_in_trash' => __('Çöp kutusunda lisans bulunamadı', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'public' => false,
+            'show_ui' => true,
+            'show_in_menu' => false, // We'll add this to our custom menu
+            'show_in_admin_bar' => false,
+            'capability_type' => 'post',
+            'capabilities' => array(
+                'edit_post' => 'manage_license_manager',
+                'read_post' => 'manage_license_manager',
+                'delete_post' => 'manage_license_manager',
+                'edit_posts' => 'manage_license_manager',
+                'edit_others_posts' => 'manage_license_manager',
+                'publish_posts' => 'manage_license_manager',
+                'read_private_posts' => 'manage_license_manager',
+            ),
+            'hierarchical' => false,
+            'supports' => array('title', 'custom-fields'),
+            'has_archive' => false,
+            'rewrite' => false,
+            'query_var' => false,
+        );
+        
+        register_post_type('lm_license', $args);
+    }
+    
+    /**
+     * Register License Package post type
+     */
+    private function register_license_package_post_type() {
+        $labels = array(
+            'name' => __('License Packages', 'license-manager'),
+            'singular_name' => __('License Package', 'license-manager'),
+            'menu_name' => __('License Packages', 'license-manager'),
+            'add_new' => __('Yeni Paket Ekle', 'license-manager'),
+            'add_new_item' => __('Add New License Package', 'license-manager'),
+            'edit_item' => __('Edit License Package', 'license-manager'),
+            'new_item' => __('New License Package', 'license-manager'),
+            'view_item' => __('View License Package', 'license-manager'),
+            'search_items' => __('Search License Packages', 'license-manager'),
+            'not_found' => __('Lisans paketi bulunamadı', 'license-manager'),
+            'not_found_in_trash' => __('Çöp kutusunda lisans paketi bulunamadı', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'public' => false,
+            'show_ui' => true,
+            'show_in_menu' => false, // We'll add this to our custom menu
+            'show_in_admin_bar' => false,
+            'capability_type' => 'post',
+            'capabilities' => array(
+                'edit_post' => 'manage_license_manager',
+                'read_post' => 'manage_license_manager',
+                'delete_post' => 'manage_license_manager',
+                'edit_posts' => 'manage_license_manager',
+                'edit_others_posts' => 'manage_license_manager',
+                'publish_posts' => 'manage_license_manager',
+                'read_private_posts' => 'manage_license_manager',
+            ),
+            'hierarchical' => false,
+            'supports' => array('title', 'editor', 'custom-fields'),
+            'has_archive' => false,
+            'rewrite' => false,
+            'query_var' => false,
+        );
+        
+        register_post_type('lm_license_package', $args);
+    }
+    
+    /**
+     * Register Payment post type
+     */
+    private function register_payment_post_type() {
+        $labels = array(
+            'name' => __('Ödemeler', 'license-manager'),
+            'singular_name' => __('Ödeme', 'license-manager'),
+            'menu_name' => __('Ödemeler', 'license-manager'),
+            'add_new' => __('Yeni Ödeme Ekle', 'license-manager'),
+            'add_new_item' => __('Yeni Ödeme Ekle', 'license-manager'),
+            'edit_item' => __('Ödeme Düzenle', 'license-manager'),
+            'new_item' => __('Yeni Ödeme', 'license-manager'),
+            'view_item' => __('Ödeme Görüntüle', 'license-manager'),
+            'search_items' => __('Ödeme Ara', 'license-manager'),
+            'not_found' => __('Ödeme bulunamadı', 'license-manager'),
+            'not_found_in_trash' => __('Çöp kutusunda ödeme bulunamadı', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'public' => false,
+            'show_ui' => true,
+            'show_in_menu' => false, // We'll add this to our custom menu
+            'show_in_admin_bar' => false,
+            'capability_type' => 'post',
+            'capabilities' => array(
+                'edit_post' => 'manage_license_manager',
+                'read_post' => 'manage_license_manager',
+                'delete_post' => 'manage_license_manager',
+                'edit_posts' => 'manage_license_manager',
+                'edit_others_posts' => 'manage_license_manager',
+                'publish_posts' => 'manage_license_manager',
+                'read_private_posts' => 'manage_license_manager',
+            ),
+            'hierarchical' => false,
+            'supports' => array('title', 'editor', 'custom-fields', 'thumbnail'),
+            'has_archive' => false,
+            'rewrite' => false,
+            'query_var' => false,
+        );
+        
+        register_post_type('lm_payment', $args);
+    }
+    
+    /**
+     * Register taxonomies
+     */
+    public function register_taxonomies() {
+        $this->register_license_status_taxonomy();
+        $this->register_license_type_taxonomy();
+        $this->register_modules_taxonomy();
+        $this->register_payment_status_taxonomy();
+    }
+    
+    /**
+     * Register License Status taxonomy
+     */
+    private function register_license_status_taxonomy() {
+        $labels = array(
+            'name' => __('License Status', 'license-manager'),
+            'singular_name' => __('License Status', 'license-manager'),
+            'menu_name' => __('License Status', 'license-manager'),
+            'all_items' => __('Tüm Durumlar', 'license-manager'),
+            'edit_item' => __('Durum Düzenle', 'license-manager'),
+            'view_item' => __('Durum Görüntüle', 'license-manager'),
+            'update_item' => __('Durum Güncelle', 'license-manager'),
+            'add_new_item' => __('Yeni Durum Ekle', 'license-manager'),
+            'new_item_name' => __('Yeni Durum Adı', 'license-manager'),
+            'search_items' => __('Durum Ara', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'hierarchical' => false,
+            'public' => false,
+            'show_ui' => true,
+            'show_admin_column' => true,
+            'show_in_nav_menus' => false,
+            'show_tagcloud' => false,
+            'capabilities' => array(
+                'manage_terms' => 'manage_license_manager',
+                'edit_terms' => 'manage_license_manager',
+                'delete_terms' => 'manage_license_manager',
+                'assign_terms' => 'manage_license_manager',
+            ),
+        );
+        
+        register_taxonomy('lm_license_status', array('lm_license'), $args);
+    }
+    
+    /**
+     * Register License Type taxonomy
+     */
+    private function register_license_type_taxonomy() {
+        $labels = array(
+            'name' => __('License Types', 'license-manager'),
+            'singular_name' => __('License Type', 'license-manager'),
+            'menu_name' => __('License Types', 'license-manager'),
+            'all_items' => __('Tüm Türler', 'license-manager'),
+            'edit_item' => __('Tür Düzenle', 'license-manager'),
+            'view_item' => __('Tür Görüntüle', 'license-manager'),
+            'update_item' => __('Tür Güncelle', 'license-manager'),
+            'add_new_item' => __('Yeni Tür Ekle', 'license-manager'),
+            'new_item_name' => __('Yeni Tür Adı', 'license-manager'),
+            'search_items' => __('Tür Ara', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'hierarchical' => true,
+            'public' => false,
+            'show_ui' => true,
+            'show_admin_column' => true,
+            'show_in_nav_menus' => false,
+            'show_tagcloud' => false,
+            'capabilities' => array(
+                'manage_terms' => 'manage_license_manager',
+                'edit_terms' => 'manage_license_manager',
+                'delete_terms' => 'manage_license_manager',
+                'assign_terms' => 'manage_license_manager',
+            ),
+        );
+        
+        register_taxonomy('lm_license_type', array('lm_license'), $args);
+    }
+    
+    /**
+     * Register Modules taxonomy
+     */
+    private function register_modules_taxonomy() {
+        $labels = array(
+            'name' => __('Modüller', 'license-manager'),
+            'singular_name' => __('Modül', 'license-manager'),
+            'menu_name' => __('Modüller', 'license-manager'),
+            'all_items' => __('All Modules', 'license-manager'),
+            'edit_item' => __('Edit Module', 'license-manager'),
+            'view_item' => __('View Module', 'license-manager'),
+            'update_item' => __('Update Module', 'license-manager'),
+            'add_new_item' => __('Add New Module', 'license-manager'),
+            'new_item_name' => __('New Module Name', 'license-manager'),
+            'search_items' => __('Search Modules', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'hierarchical' => false,
+            'public' => false,
+            'show_ui' => true,
+            'show_admin_column' => true,
+            'show_in_nav_menus' => false,
+            'show_tagcloud' => false,
+            'capabilities' => array(
+                'manage_terms' => 'manage_license_manager',
+                'edit_terms' => 'manage_license_manager',
+                'delete_terms' => 'manage_license_manager',
+                'assign_terms' => 'manage_license_manager',
+            ),
+        );
+        
+        register_taxonomy('lm_modules', array('lm_license', 'lm_license_package'), $args);
+    }
+    
+    /**
+     * Register Payment Status taxonomy
+     */
+    private function register_payment_status_taxonomy() {
+        $labels = array(
+            'name' => __('Ödeme Durumu', 'license-manager'),
+            'singular_name' => __('Ödeme Durumu', 'license-manager'),
+            'menu_name' => __('Ödeme Durumları', 'license-manager'),
+            'all_items' => __('Tüm Durumlar', 'license-manager'),
+            'edit_item' => __('Durum Düzenle', 'license-manager'),
+            'view_item' => __('Durum Görüntüle', 'license-manager'),
+            'update_item' => __('Durum Güncelle', 'license-manager'),
+            'add_new_item' => __('Yeni Durum Ekle', 'license-manager'),
+            'new_item_name' => __('Yeni Durum Adı', 'license-manager'),
+            'search_items' => __('Durum Ara', 'license-manager'),
+        );
+        
+        $args = array(
+            'labels' => $labels,
+            'hierarchical' => false,
+            'public' => false,
+            'show_ui' => false,
+            'show_admin_column' => true,
+            'query_var' => false,
+            'rewrite' => false,
+        );
+        
+        register_taxonomy('lm_payment_status', array('lm_payment'), $args);
+    }
+    
+    /**
+     * Setup default data
+     */
+    public function setup_default_data() {
+        $this->create_default_license_status();
+        $this->create_default_license_types();
+        $this->create_default_modules();
+        $this->create_default_payment_status();
+    }
+    
+    /**
+     * Create default license status terms
+     */
+    private function create_default_license_status() {
+        $statuses = array(
+            'active' => __('Aktif', 'license-manager'),
+            'expired' => __('Süresi Dolmuş', 'license-manager'),
+            'invalid' => __('Geçersiz', 'license-manager'),
+            'suspended' => __('Askıya Alınmış', 'license-manager'),
+        );
+        
+        foreach ($statuses as $slug => $name) {
+            if (!term_exists($slug, 'lm_license_status')) {
+                wp_insert_term($name, 'lm_license_status', array('slug' => $slug));
+            }
+        }
+    }
+    
+    /**
+     * Create default license types
+     */
+    private function create_default_license_types() {
+        $types = array(
+            'monthly' => __('Aylık', 'license-manager'),
+            'yearly' => __('Yıllık', 'license-manager'),
+            'lifetime' => __('Yaşam Boyu', 'license-manager'),
+            'trial' => __('Deneme', 'license-manager'),
+        );
+        
+        foreach ($types as $slug => $name) {
+            if (!term_exists($slug, 'lm_license_type')) {
+                wp_insert_term($name, 'lm_license_type', array('slug' => $slug));
+            }
+        }
+    }
+    
+    /**
+     * Create default modules
+     */
+    private function create_default_modules() {
+        $modules = array(
+            'dashboard' => __('Dashboard', 'license-manager'),
+            'customers' => __('Müşteriler', 'license-manager'),
+            'policies' => __('Poliçeler', 'license-manager'),
+            'quotes' => __('Teklifler', 'license-manager'),
+            'tasks' => __('Görevler', 'license-manager'),
+            'reports' => __('Raporlar', 'license-manager'),
+            'data_transfer' => __('Veri Aktarımı', 'license-manager'),
+        );
+        
+        foreach ($modules as $slug => $name) {
+            if (!term_exists($slug, 'lm_modules')) {
+                $result = wp_insert_term($name, 'lm_modules', array('slug' => $slug));
+                if (is_wp_error($result)) {
+                    error_log('License Manager: Failed to create module ' . $slug . ': ' . $result->get_error_message());
+                } else {
+                    error_log('License Manager: Created module ' . $slug . ' - ' . $name);
+                }
+            } else {
+                error_log('License Manager: Module already exists - ' . $slug);
+            }
+        }
+    }
+    
+    /**
+     * Force create default modules - use when needed to ensure modules exist
+     */
+    public function force_create_default_modules() {
+        // First ensure the taxonomy is registered
+        $this->register_modules_taxonomy();
+        
+        $modules = array(
+            'dashboard' => __('Dashboard', 'license-manager'),
+            'customers' => __('Müşteriler', 'license-manager'),
+            'policies' => __('Poliçeler', 'license-manager'),
+            'quotes' => __('Teklifler', 'license-manager'),
+            'tasks' => __('Görevler', 'license-manager'),
+            'reports' => __('Raporlar', 'license-manager'),
+            'data_transfer' => __('Veri Aktarımı', 'license-manager'),
+        );
+        
+        $created_count = 0;
+        foreach ($modules as $slug => $name) {
+            $existing_term = term_exists($slug, 'lm_modules');
+            if (!$existing_term) {
+                $result = wp_insert_term($name, 'lm_modules', array('slug' => $slug));
+                if (!is_wp_error($result)) {
+                    $created_count++;
+                    error_log('License Manager: Force created module ' . $slug . ' - ' . $name);
+                } else {
+                    error_log('License Manager: Failed to force create module ' . $slug . ': ' . $result->get_error_message());
+                }
+            }
+        }
+        
+        error_log('License Manager: Force create modules completed. Created: ' . $created_count);
+        return $created_count;
+    }
+    
+    /**
+     * Create default payment status terms
+     */
+    private function create_default_payment_status() {
+        $statuses = array(
+            'pending' => __('Beklemede', 'license-manager'),
+            'completed' => __('Tamamlandı', 'license-manager'),
+            'failed' => __('Başarısız', 'license-manager'),
+            'cancelled' => __('İptal Edildi', 'license-manager'),
+            'refunded' => __('İade Edildi', 'license-manager'),
+        );
+        
+        foreach ($statuses as $slug => $name) {
+            if (!term_exists($slug, 'lm_payment_status')) {
+                $result = wp_insert_term($name, 'lm_payment_status', array('slug' => $slug));
+                if (is_wp_error($result)) {
+                    error_log('License Manager: Failed to create payment status ' . $slug . ': ' . $result->get_error_message());
+                } else {
+                    error_log('License Manager: Created payment status ' . $slug . ' - ' . $name);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Force create default payment status terms (public method)
+     */
+    public function force_create_default_payment_status() {
+        // Ensure taxonomy is registered first
+        if (!taxonomy_exists('lm_payment_status')) {
+            $this->register_payment_status_taxonomy();
+        }
+        
+        $statuses = array(
+            'pending' => __('Beklemede', 'license-manager'),
+            'completed' => __('Tamamlandı', 'license-manager'),
+            'failed' => __('Başarısız', 'license-manager'),
+            'cancelled' => __('İptal Edildi', 'license-manager'),
+            'refunded' => __('İade Edildi', 'license-manager'),
+        );
+        
+        $created_count = 0;
+        foreach ($statuses as $slug => $name) {
+            if (!term_exists($slug, 'lm_payment_status')) {
+                $result = wp_insert_term($name, 'lm_payment_status', array('slug' => $slug));
+                if (is_wp_error($result)) {
+                    error_log('License Manager: Failed to create payment status ' . $slug . ': ' . $result->get_error_message());
+                } else {
+                    error_log('License Manager: Force created payment status ' . $slug . ' - ' . $name);
+                    $created_count++;
+                }
+            }
+        }
+        
+        return $created_count;
+    }
+    
+    /**
+     * Get all available modules 
+     */
+    public function get_available_modules() {
+        // Ensure modules exist
+        $this->force_create_default_modules();
+        
+        $modules = get_terms(array(
+            'taxonomy' => 'lm_modules',
+            'hide_empty' => false,
+        ));
+        
+        if (is_wp_error($modules)) {
+            error_log('License Manager: Error getting modules: ' . $modules->get_error_message());
+            return array();
+        }
+        
+        return $modules;
+    }
+    
+    /**
+     * Create sample license for testing
+     */
+    private function create_sample_license() {
+        // Check if sample license already exists
+        $existing_licenses = get_posts(array(
+            'post_type' => 'lm_license',
+            'meta_query' => array(
+                array(
+                    'key' => '_license_key',
+                    'value' => 'LIC-SAMPLE-TEST-2024',
+                    'compare' => '='
+                )
+            ),
+            'posts_per_page' => 1
+        ));
+        
+        if (!empty($existing_licenses)) {
+            error_log("BALKAy License: Sample license already exists");
+            return;
+        }
+        
+        // Create sample license
+        $license_id = wp_insert_post(array(
+            'post_type' => 'lm_license',
+            'post_title' => 'Test Lisansı - BALKAy CRM',
+            'post_status' => 'publish',
+            'post_content' => 'Test amaçlı örnek lisans'
+        ));
+        
+        if ($license_id) {
+            // Set license metadata
+            update_post_meta($license_id, '_license_key', 'LIC-SAMPLE-TEST-2024');
+            update_post_meta($license_id, '_expires_on', date('Y-m-d', strtotime('+1 year')));
+            update_post_meta($license_id, '_user_limit', 10);
+            update_post_meta($license_id, '_allowed_domains', 'localhost,127.0.0.1,*.local,*.test,balkay.net,*.balkay.net');
+            update_post_meta($license_id, '_status', 'active');
+            
+            // Set license type
+            wp_set_object_terms($license_id, 'yearly', 'lm_license_type');
+            
+            // Set modules
+            wp_set_object_terms($license_id, array('dashboard', 'customers', 'policies', 'quotes', 'tasks', 'reports', 'data_transfer'), 'lm_modules');
+            
+            error_log("BALKAy License: Sample license created with ID: " . $license_id);
+        } else {
+            error_log("BALKAy License: Failed to create sample license");
+        }
+    }
+}

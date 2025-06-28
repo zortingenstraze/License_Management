@@ -1,0 +1,492 @@
+/* License Manager Admin Styles */
+
+.license-manager-dashboard {
+    margin-top: 20px;
+}
+
+.dashboard-stats {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+}
+
+.stat-box {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
+    min-width: 150px;
+    flex: 1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease;
+}
+
+.stat-box:hover {
+    transform: translateY(-2px);
+}
+
+.stat-box h3 {
+    font-size: 2.5em;
+    margin: 0 0 10px 0;
+    color: #0073aa;
+}
+
+.stat-box p {
+    margin: 0;
+    color: #666;
+    font-weight: 500;
+}
+
+/* Stat box variants */
+.stat-box.primary h3 { color: #0073aa; }
+.stat-box.success h3 { color: #46b450; }
+.stat-box.warning h3 { color: #ffb900; }
+.stat-box.danger h3 { color: #dc3232; }
+.stat-box.info h3 { color: #00a0d2; }
+.stat-box.secondary h3 { color: #666; }
+.stat-box.premium h3 { color: #9b59b6; }
+.stat-box.revenue h3 { color: #27ae60; }
+.stat-box.monthly-revenue h3 { color: #2ecc71; }
+.stat-box.average h3 { color: #f39c12; }
+
+.dashboard-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-top: 30px;
+}
+
+.dashboard-recent,
+.dashboard-payments {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.recent-licenses,
+.expiring-licenses,
+.overdue-payments,
+.upcoming-payments {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 20px;
+}
+
+.recent-licenses h3,
+.expiring-licenses h3,
+.overdue-payments h3,
+.upcoming-payments h3 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.recent-licenses ul,
+.expiring-licenses ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.recent-licenses li,
+.expiring-licenses li {
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.recent-licenses li:last-child,
+.expiring-licenses li:last-child {
+    border-bottom: none;
+}
+
+/* Payment Management Styles */
+.payment-dashboard {
+    background: #fff;
+    padding: 20px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.payment-stats {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+}
+
+.payment-tabs {
+    margin-top: 20px;
+}
+
+.tab-buttons {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.tab-button {
+    background: #f1f1f1;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    margin-right: 5px;
+    border-radius: 4px 4px 0 0;
+    transition: background 0.2s ease;
+}
+
+.tab-button:hover {
+    background: #e0e0e0;
+}
+
+.tab-button.active {
+    background: #fff;
+    border-bottom: 1px solid #fff;
+    margin-bottom: -1px;
+}
+
+.tab-content {
+    padding: 20px 0;
+}
+
+.overdue-days {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.remaining-days {
+    color: #ffb900;
+    font-weight: bold;
+}
+
+/* Status Styles */
+.status-active {
+    color: #46b450;
+    font-weight: bold;
+}
+
+.status-expired {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.status-inactive {
+    color: #999;
+    font-weight: bold;
+}
+
+/* Dashboard Link Styles */
+.dashboard-link {
+    color: #0073aa;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.dashboard-link:hover {
+    color: #005a87;
+}
+
+/* Financial statistics specific styling */
+.financial .stat-box {
+    border-left: 4px solid #27ae60;
+}
+
+.financial .stat-box h3 {
+    color: #27ae60;
+}
+
+/* License Status Styles */
+.license-status-active {
+    color: #46b450;
+    font-weight: bold;
+}
+
+.license-status-expired {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.license-status-invalid {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.license-status-suspended {
+    color: #ffb900;
+    font-weight: bold;
+}
+
+/* License List Table Styles */
+.license-count {
+    background: #0073aa;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.text-muted {
+    color: #999;
+    font-style: italic;
+}
+
+.expired {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.expiring-soon {
+    color: #ffb900;
+    font-weight: bold;
+}
+
+.lifetime {
+    color: #46b450;
+    font-weight: bold;
+}
+
+/* Meta Box Styles */
+.license-actions {
+    text-align: center;
+}
+
+.license-actions .button {
+    display: block;
+    width: 100%;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+/* Form Styles */
+.form-table th {
+    vertical-align: top;
+    padding-top: 10px;
+}
+
+.form-table td {
+    vertical-align: top;
+}
+
+.form-table input[type="text"],
+.form-table input[type="email"],
+.form-table input[type="url"],
+.form-table input[type="number"],
+.form-table input[type="date"],
+.form-table textarea,
+.form-table select {
+    width: 100%;
+    max-width: 400px;
+}
+
+.form-table textarea {
+    max-width: 600px;
+}
+
+/* Required field styling */
+.required {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+/* Add form specific styling */
+.license-manager-form {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.license-manager-form .form-table {
+    margin-top: 0;
+}
+
+.license-manager-form .form-table th {
+    padding-left: 0;
+}
+
+/* Module checkboxes styling */
+.form-table input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.form-table label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.form-table label input[type="checkbox"] {
+    width: auto;
+    max-width: none;
+}
+
+/* Widget Styles */
+.license-manager-widget p {
+    margin: 5px 0;
+}
+
+.license-manager-widget strong {
+    display: inline-block;
+    min-width: 120px;
+}
+
+.license-manager-widget .button {
+    margin: 2px 0;
+    width: 100%;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .dashboard-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-stats,
+    .payment-stats {
+        flex-direction: column;
+    }
+    
+    .dashboard-recent {
+        flex-direction: column;
+    }
+    
+    .stat-box {
+        min-width: auto;
+    }
+    
+    .tab-buttons {
+        flex-wrap: wrap;
+    }
+    
+    .tab-button {
+        margin-bottom: 5px;
+    }
+}
+
+/* Loading spinner */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.spinner {
+    background: url('../images/spinner.gif') no-repeat;
+    background-size: 20px 20px;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    vertical-align: middle;
+    margin-left: 5px;
+}
+
+/* Notifications */
+.license-manager-notice {
+    padding: 12px;
+    margin: 5px 0 15px;
+    border-left: 4px solid #0073aa;
+    background: #fff;
+    box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
+}
+
+.license-manager-notice.notice-success {
+    border-left-color: #46b450;
+}
+
+.license-manager-notice.notice-error {
+    border-left-color: #dc3232;
+}
+
+.license-manager-notice.notice-warning {
+    border-left-color: #ffb900;
+}
+
+/* Payment Status Styles */
+.status-pending {
+    color: #ffb900;
+    font-weight: bold;
+}
+
+.status-beklemede {
+    color: #ffb900;
+    font-weight: bold;
+}
+
+.status-completed {
+    color: #46b450;
+    font-weight: bold;
+}
+
+.status-tamamlandı {
+    color: #46b450;
+    font-weight: bold;
+}
+
+.status-failed {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.status-başarısız {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.status-cancelled {
+    color: #666;
+    font-weight: bold;
+}
+
+.status-iptal_edildi {
+    color: #666;
+    font-weight: bold;
+}
+
+.status-refunded {
+    color: #9b59b6;
+    font-weight: bold;
+}
+
+.status-iade_edildi {
+    color: #9b59b6;
+    font-weight: bold;
+}
+
+/* Payment form styles */
+.payment-dashboard .payment-stats {
+    margin-bottom: 30px;
+}
+
+.payment-tabs .tab-buttons {
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.payment-tabs .tab-button {
+    background: none;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-right: 10px;
+}
+
+.payment-tabs .tab-button.active {
+    border-bottom-color: #0073aa;
+    color: #0073aa;
+    font-weight: bold;
+}
+
+.payment-tabs .tab-content {
+    display: none;
+}
+
+.payment-tabs .tab-content.active {
+    display: block;
+}
