@@ -27,6 +27,25 @@ class License_Manager_API {
         add_action('init', array($this, 'add_custom_rewrite_rules'));
         add_action('query_vars', array($this, 'add_query_vars'));
         add_action('template_redirect', array($this, 'handle_custom_api_requests'));
+        
+        // Ensure license types and modules are created
+        add_action('init', array($this, 'ensure_taxonomies_exist'), 11);
+    }
+    
+    /**
+     * Ensure taxonomies and terms exist
+     */
+    public function ensure_taxonomies_exist() {
+        // Check if license types exist
+        if (!term_exists('demo', 'lm_license_type')) {
+            wp_insert_term(__('Demo', 'license-manager'), 'lm_license_type', array('slug' => 'demo'));
+        }
+        if (!term_exists('lifetime', 'lm_license_type')) {
+            wp_insert_term(__('Yaşam Boyu', 'license-manager'), 'lm_license_type', array('slug' => 'lifetime'));
+        }
+        if (!term_exists('trial', 'lm_license_type')) {
+            wp_insert_term(__('Deneme', 'license-manager'), 'lm_license_type', array('slug' => 'trial'));
+        }
     }
     
     /**
@@ -243,7 +262,7 @@ class License_Manager_API {
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
-            'message' => $this->get_status_message($status)
+            'message' => $this->get_status_message($status, $license_data)
         ), 200);
     }
     
@@ -276,7 +295,7 @@ class License_Manager_API {
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
-            'message' => $this->get_status_message($status)
+            'message' => $this->get_status_message($status, $license_data)
         ), 200);
     }
     
@@ -291,7 +310,8 @@ class License_Manager_API {
      * Test endpoint for debugging
      */
     public function test_endpoint($request) {
-        return new WP_REST_Response(array(
+        // Get some debug information
+        $debug_info = array(
             'status' => 'success',
             'message' => 'BALKAy License API is working',
             'namespace' => $this->namespace,
@@ -302,8 +322,52 @@ class License_Manager_API {
                 '/wp-json/' . $this->namespace . '/check_status',
                 '/wp-json/' . $this->namespace . '/test'
             ),
-            'timestamp' => current_time('mysql')
-        ), 200);
+            'custom_endpoints' => array(
+                '/api/validate_license',
+                '/api/validate'
+            ),
+            'timestamp' => current_time('mysql'),
+            'rewrite_rules_flushed' => get_option('balkay_license_rewrite_flushed'),
+            'current_version' => BALKAY_LICENSE_VERSION
+        );
+        
+        // Check if license types exist
+        $license_types = get_terms(array(
+            'taxonomy' => 'lm_license_type',
+            'hide_empty' => false,
+        ));
+        
+        if (!is_wp_error($license_types)) {
+            $debug_info['license_types'] = array();
+            foreach ($license_types as $type) {
+                $debug_info['license_types'][] = array(
+                    'slug' => $type->slug,
+                    'name' => $type->name
+                );
+            }
+        } else {
+            $debug_info['license_types_error'] = $license_types->get_error_message();
+        }
+        
+        // Check if modules exist
+        $modules = get_terms(array(
+            'taxonomy' => 'lm_modules',
+            'hide_empty' => false,
+        ));
+        
+        if (!is_wp_error($modules)) {
+            $debug_info['modules'] = array();
+            foreach ($modules as $module) {
+                $debug_info['modules'][] = array(
+                    'slug' => $module->slug,
+                    'name' => $module->name
+                );
+            }
+        } else {
+            $debug_info['modules_error'] = $modules->get_error_message();
+        }
+        
+        return new WP_REST_Response($debug_info, 200);
     }
     
     /**
@@ -325,10 +389,12 @@ class License_Manager_API {
         ));
         
         if (empty($licenses)) {
+            error_log("BALKAy License API: No license found for key: " . substr($license_key, 0, 10) . "...");
             return false;
         }
         
         $license = $licenses[0];
+        error_log("BALKAy License API: Found license ID: " . $license->ID . " for key: " . substr($license_key, 0, 10) . "...");
         
         // Get license metadata
         $expires_on = get_post_meta($license->ID, '_expires_on', true);
@@ -340,6 +406,15 @@ class License_Manager_API {
         $license_type = 'monthly'; // default
         if (!is_wp_error($license_types) && !empty($license_types)) {
             $license_type = $license_types[0]->slug;
+            error_log("BALKAy License API: License type from taxonomy: " . $license_type);
+        } else {
+            error_log("BALKAy License API: No license type found in taxonomy, using default: " . $license_type);
+            // Try to get from meta as fallback
+            $license_type_meta = get_post_meta($license->ID, '_license_type', true);
+            if (!empty($license_type_meta)) {
+                $license_type = $license_type_meta;
+                error_log("BALKAy License API: License type from meta: " . $license_type);
+            }
         }
         
         // Get modules - check both taxonomy and meta for consistency
@@ -363,6 +438,8 @@ class License_Manager_API {
         if (empty($module_slugs)) {
             $module_slugs = get_option('license_manager_default_modules', array('dashboard', 'customers', 'policies', 'quotes', 'tasks', 'reports', 'data_transfer'));
         }
+        
+        error_log("BALKAy License API: License data - Type: " . $license_type . ", Expires: " . $expires_on . ", Modules: " . implode(',', $module_slugs));
         
         return array(
             'id' => $license->ID,
@@ -420,12 +497,34 @@ class License_Manager_API {
             $current_status = 'active'; // Default status
         }
         
+        error_log("BALKAy License API: License status check - Current status: " . $current_status . ", Type: " . $license_data['license_type'] . ", Expires: " . $license_data['expires_on']);
+        
         // If manually set to invalid or suspended
         if (in_array($current_status, array('invalid', 'suspended'))) {
             return $current_status;
         }
         
-        // Check expiry date
+        // Handle special license types
+        if ($license_data['license_type'] === 'lifetime') {
+            // Lifetime licenses never expire
+            return 'active';
+        }
+        
+        if ($license_data['license_type'] === 'demo') {
+            // Demo licenses have a special status message but check expiry normally
+            $status = 'active';
+            if (!empty($license_data['expires_on']) && $license_data['expires_on'] !== 'lifetime') {
+                $expiry_date = strtotime($license_data['expires_on']);
+                $current_date = current_time('timestamp');
+                
+                if ($current_date > $expiry_date) {
+                    $status = 'expired';
+                }
+            }
+            return $status;
+        }
+        
+        // Check expiry date for all other types
         if (!empty($license_data['expires_on']) && $license_data['expires_on'] !== 'lifetime') {
             $expiry_date = strtotime($license_data['expires_on']);
             $current_date = current_time('timestamp');
@@ -441,13 +540,32 @@ class License_Manager_API {
     /**
      * Get status message
      */
-    private function get_status_message($status) {
+    private function get_status_message($status, $license_data = null) {
         $messages = array(
             'active' => __('Lisans aktif ve geçerli', 'license-manager'),
             'expired' => __('Lisans süresi dolmuş', 'license-manager'),
             'invalid' => __('Lisans anahtarı geçersiz', 'license-manager'),
             'suspended' => __('Lisans askıya alınmış', 'license-manager'),
         );
+        
+        // Special messages for different license types
+        if ($license_data && $status === 'active') {
+            if ($license_data['license_type'] === 'lifetime') {
+                return __('Yaşam boyu lisans - süresiz aktif', 'license-manager');
+            }
+            if ($license_data['license_type'] === 'demo') {
+                if (!empty($license_data['expires_on'])) {
+                    return __('Demo lisans aktif - Bitiş: ', 'license-manager') . $license_data['expires_on'];
+                }
+                return __('Demo lisans aktif', 'license-manager');
+            }
+            if ($license_data['license_type'] === 'trial') {
+                if (!empty($license_data['expires_on'])) {
+                    return __('Deneme lisansı aktif - Bitiş: ', 'license-manager') . $license_data['expires_on'];
+                }
+                return __('Deneme lisansı aktif', 'license-manager');
+            }
+        }
         
         return isset($messages[$status]) ? $messages[$status] : __('Bilinmeyen durum', 'license-manager');
     }
@@ -456,13 +574,30 @@ class License_Manager_API {
      * Add custom rewrite rules for /api endpoints
      */
     public function add_custom_rewrite_rules() {
+        // Add multiple rewrite rules to handle different cases
         add_rewrite_rule('^api/validate_license/?$', 'index.php?balkay_api=validate_license', 'top');
+        add_rewrite_rule('^api/validate/?$', 'index.php?balkay_api=validate_license', 'top');
         add_rewrite_tag('%balkay_api%', '([^&]+)');
         
         // Force flush rewrite rules on plugin activation/update
         if (get_option('balkay_license_rewrite_flushed') !== BALKAY_LICENSE_VERSION) {
             flush_rewrite_rules();
             update_option('balkay_license_rewrite_flushed', BALKAY_LICENSE_VERSION);
+        }
+        
+        // Also ensure rewrite rules are flushed on first load after changes
+        add_action('wp_loaded', array($this, 'maybe_flush_rewrite_rules'), 1);
+    }
+    
+    /**
+     * Maybe flush rewrite rules if needed
+     */
+    public function maybe_flush_rewrite_rules() {
+        // Check if our rewrite rules exist
+        $rules = get_option('rewrite_rules');
+        if (!$rules || !isset($rules['^api/validate_license/?$'])) {
+            flush_rewrite_rules();
+            error_log('BALKAy License: Flushed rewrite rules - API rules were missing');
         }
     }
     
@@ -480,6 +615,8 @@ class License_Manager_API {
     public function handle_custom_api_requests() {
         $api_action = get_query_var('balkay_api');
         
+        error_log("BALKAy License API: Handling custom API request - Action: " . $api_action);
+        
         if ($api_action === 'validate_license') {
             $this->handle_validate_license_api();
         }
@@ -489,10 +626,13 @@ class License_Manager_API {
      * Handle /api/validate_license endpoint
      */
     private function handle_validate_license_api() {
+        error_log("BALKAy License API: Processing /api/validate_license request");
+        
         // Set JSON header
         header('Content-Type: application/json');
         
         $method = $_SERVER['REQUEST_METHOD'];
+        error_log("BALKAy License API: Request method: " . $method);
         
         // Support both GET and POST methods
         if (!in_array($method, ['GET', 'POST'])) {
@@ -515,18 +655,34 @@ class License_Manager_API {
             if (!$data && !empty($_POST)) {
                 $data = $_POST;
             }
+            
+            error_log("BALKAy License API: POST data received: " . json_encode($data));
         } else {
             // GET request - get parameters from query string
             $data = $_GET;
+            error_log("BALKAy License API: GET data received: " . json_encode($data));
         }
         
         // Validate required parameters
         if (empty($data['license_key']) || empty($data['domain'])) {
             http_response_code(400);
-            echo json_encode(array(
+            $error_response = array(
                 'status' => 'error',
-                'message' => 'license_key and domain are required'
-            ));
+                'message' => 'license_key and domain are required',
+                'debug' => array(
+                    'received_data' => $data,
+                    'missing' => array()
+                )
+            );
+            
+            if (empty($data['license_key'])) {
+                $error_response['debug']['missing'][] = 'license_key';
+            }
+            if (empty($data['domain'])) {
+                $error_response['debug']['missing'][] = 'domain';
+            }
+            
+            echo json_encode($error_response);
             exit;
         }
         
@@ -534,6 +690,8 @@ class License_Manager_API {
         $license_key = sanitize_text_field($data['license_key']);
         $domain = sanitize_text_field($data['domain']);
         $action = isset($data['action']) ? sanitize_text_field($data['action']) : 'validate';
+        
+        error_log("BALKAy License API: Processing validation for license: " . substr($license_key, 0, 10) . "... domain: " . $domain);
         
         // Create a WP_REST_Request object to use the existing validation logic
         $request = new WP_REST_Request('POST');
@@ -547,8 +705,11 @@ class License_Manager_API {
         // Set the HTTP status code
         http_response_code($response->get_status());
         
+        $response_data = $response->get_data();
+        error_log("BALKAy License API: Response data: " . json_encode($response_data));
+        
         // Output the JSON response
-        echo json_encode($response->get_data());
+        echo json_encode($response_data);
         exit;
     }
 }
