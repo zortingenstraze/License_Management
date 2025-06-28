@@ -295,7 +295,7 @@ class Insurance_CRM_License_Manager {
             // Save license information
             update_option('insurance_crm_license_key', $license_key);
             update_option('insurance_crm_license_status', 'active');
-            update_option('insurance_crm_license_type', $response['license_type'] ?? 'monthly');
+            update_option('insurance_crm_license_type', $response['license_type'] ?? '');
             update_option('insurance_crm_license_package', $response['license_package'] ?? '');
             update_option('insurance_crm_license_type_description', $response['license_type_description'] ?? '');
             update_option('insurance_crm_license_expiry', $response['expires_on'] ?? '');
