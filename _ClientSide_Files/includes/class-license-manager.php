@@ -955,100 +955,14 @@ class Insurance_CRM_License_Manager {
         
         return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     }
-}
 
-/**
- * Global helper functions for module access control
- */
-
-/**
- * Check if current user can access a specific module
- * 
- * @param string $module Module name
- * @return bool True if access allowed
- */
-if (!function_exists('insurance_crm_can_access_module')) {
-    function insurance_crm_can_access_module($module) {
-        global $insurance_crm_license_manager;
-        
-        if ($insurance_crm_license_manager) {
-            return $insurance_crm_license_manager->is_module_allowed($module);
-        }
-        
-        // Fallback check if license manager not available
-        return !empty(get_option('insurance_crm_license_modules', array())) ? 
-               in_array($module, get_option('insurance_crm_license_modules', array())) : 
-               true;
-    }
-}
-
-/**
- * Show module restriction notice and optionally stop execution
- * 
- * @param string $module Module name
- * @param bool $die Whether to stop execution
- */
-if (!function_exists('insurance_crm_show_module_restriction')) {
-    function insurance_crm_show_module_restriction($module = '', $die = false) {
-        global $insurance_crm_license_manager;
-        
-        if ($insurance_crm_license_manager) {
-            $insurance_crm_license_manager->show_module_restriction_notice($module, $die);
-            return;
-        }
-        
-        // Fallback message
-        $message = !empty($module) ? 
-                   sprintf('Bu özellik (%s) için lisansınız bulunmamaktadır.', $module) :
-                   'Bu özellik için lisansınız bulunmamaktadır.';
-        
-        echo '<div class="notice notice-error">';
-        echo '<p><strong>Erişim Kısıtlı:</strong> ' . esc_html($message) . '</p>';
-        echo '</div>';
-        
-        if ($die) {
-            wp_die($message, 'Erişim Kısıtlı', array('response' => 403));
-        }
-    }
-}
-
-/**
- * Check module access and redirect/die if restricted
- * 
- * @param string $module Module name
- * @param bool $die Whether to stop execution (default: true)
- * @return bool True if allowed, false if restricted
- */
-if (!function_exists('insurance_crm_require_module_access')) {
-    function insurance_crm_require_module_access($module, $die = true) {
-        if (insurance_crm_can_access_module($module)) {
-            return true;
-        }
-        
-        if ($die) {
-            insurance_crm_show_module_restriction($module, true);
-        }
-        
-        return false;
-    }
-}
-
-/**
- * Get JavaScript function for client-side module checking
- * 
- * @return string JavaScript function
- */
-if (!function_exists('insurance_crm_get_module_check_js')) {
-    function insurance_crm_get_module_check_js() {
-        global $insurance_crm_license_manager;
-        
-        $licensed_modules = array();
-        if ($insurance_crm_license_manager) {
-            $licensed_modules = $insurance_crm_license_manager->get_licensed_modules();
-        } else {
-            $licensed_modules = get_option('insurance_crm_license_modules', array());
-        }
-        
+    /**
+     * Get JavaScript function for client-side module checking
+     * 
+     * @return string JavaScript function
+     */
+    public function get_module_check_js() {
+        $licensed_modules = $this->get_licensed_modules();
         $js_modules = json_encode($licensed_modules);
         
         return "
@@ -1075,12 +989,12 @@ if (!function_exists('insurance_crm_get_module_check_js')) {
             return false;
         }
     
-    function requireModuleAccess(module) {
-        if (!checkModuleAccess(module)) {
-            return showModuleRestriction(module);
+        function requireModuleAccess(module) {
+            if (!checkModuleAccess(module)) {
+                return showModuleRestriction(module);
+            }
+            return true;
         }
-        return true;
-    }
-    </script>";
+        </script>";
     }
 }

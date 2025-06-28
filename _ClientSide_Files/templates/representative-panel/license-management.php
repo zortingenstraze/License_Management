@@ -1186,7 +1186,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php
 // Add module access checking JavaScript
-if (function_exists('insurance_crm_get_module_check_js')) {
-    echo insurance_crm_get_module_check_js();
+if ($insurance_crm_license_manager) {
+    echo $insurance_crm_license_manager->get_module_check_js();
 }
 ?>
