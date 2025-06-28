@@ -323,6 +323,7 @@ class License_Manager_API {
             echo json_encode(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -337,6 +338,7 @@ class License_Manager_API {
             echo json_encode(array(
                 'status' => 'invalid',
                 'license_type' => $license_data['license_type'],
+                'license_type_description' => $license_data['license_type_description'],
                 'expires_on' => $license_data['expires_on'],
                 'user_limit' => $license_data['user_limit'],
                 'modules' => $license_data['modules'],
@@ -353,6 +355,7 @@ class License_Manager_API {
         echo json_encode(array(
             'status' => $status,
             'license_type' => $license_data['license_type'],
+            'license_type_description' => $license_data['license_type_description'],
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
@@ -663,6 +666,7 @@ class License_Manager_API {
             return new WP_REST_Response(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -678,6 +682,7 @@ class License_Manager_API {
             return new WP_REST_Response(array(
                 'status' => 'invalid',
                 'license_type' => $license_data['license_type'],
+                'license_type_description' => $license_data['license_type_description'],
                 'expires_on' => $license_data['expires_on'],
                 'user_limit' => $license_data['user_limit'],
                 'modules' => $license_data['modules'],
@@ -693,6 +698,7 @@ class License_Manager_API {
         return new WP_REST_Response(array(
             'status' => $status,
             'license_type' => $license_data['license_type'],
+            'license_type_description' => $license_data['license_type_description'],
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
@@ -713,6 +719,7 @@ class License_Manager_API {
             return new WP_REST_Response(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -726,6 +733,7 @@ class License_Manager_API {
         return new WP_REST_Response(array(
             'status' => $status,
             'license_type' => $license_data['license_type'],
+            'license_type_description' => $license_data['license_type_description'],
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
@@ -789,11 +797,30 @@ class License_Manager_API {
         $user_limit = get_post_meta($license->ID, '_user_limit', true);
         $allowed_domains = get_post_meta($license->ID, '_allowed_domains', true);
         
-        // Get license type
-        $license_types = wp_get_post_terms($license->ID, 'lm_license_type');
+        // Get license type - try both taxonomy and meta field
         $license_type = 'monthly'; // default
+        $license_types = wp_get_post_terms($license->ID, 'lm_license_type');
         if (!is_wp_error($license_types) && !empty($license_types)) {
             $license_type = $license_types[0]->slug;
+        } else {
+            // Fallback to meta field if taxonomy is empty
+            $license_type_meta = get_post_meta($license->ID, '_license_type', true);
+            if (!empty($license_type_meta)) {
+                $license_type = $license_type_meta;
+            }
+        }
+        
+        // Get license type description for client display
+        $license_type_description = '';
+        $type_descriptions = array(
+            'monthly' => 'Aylık Abonelik',
+            'yearly' => 'Yıllık Abonelik', 
+            'lifetime' => 'Ömürlük Lisans',
+            'trial' => 'Deneme Lisansı'
+        );
+        
+        if (isset($type_descriptions[$license_type])) {
+            $license_type_description = $type_descriptions[$license_type];
         }
         
         // Get modules - check both taxonomy and meta for consistency
@@ -822,6 +849,7 @@ class License_Manager_API {
             'id' => $license->ID,
             'license_key' => $license_key,
             'license_type' => $license_type,
+            'license_type_description' => $license_type_description,
             'expires_on' => $expires_on ? date('Y-m-d', strtotime($expires_on)) : '',
             'user_limit' => intval($user_limit) ?: get_option('license_manager_default_user_limit', 5),
             'modules' => $module_slugs,
@@ -1064,6 +1092,7 @@ class License_Manager_API {
             echo json_encode(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
