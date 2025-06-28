@@ -108,42 +108,15 @@ class License_Manager_Plugin {
         
         // Force create modules to ensure they exist
         $created_modules = $database->force_create_default_modules();
-        error_log("BALKAy License: Plugin activation - Created $created_modules modules");
         
         // Set default options
         $this->set_default_options();
         
-        // Initialize API to add rewrite rules
+        // Initialize API to add any necessary rewrite rules
         new License_Manager_API();
         
-        // Force multiple rewrite rule flushes for reliability
-        flush_rewrite_rules(false); // Soft flush first
-        flush_rewrite_rules(true);  // Hard flush second
-        
-        // Clear any REST API caches
-        global $wp_rest_server;
-        $wp_rest_server = null;
-        
-        // Clear any WordPress object cache that might affect routing
-        if (function_exists('wp_cache_flush')) {
-            wp_cache_flush();
-        }
-        
-        // Set rewrite rules flags to force refresh on next loads
-        delete_option('license_manager_rewrite_rules_flushed');
-        delete_option('balkay_license_rewrite_flushed');
-        delete_option('rewrite_rules'); // Force WordPress to rebuild rewrite rules
-        
-        // Schedule delayed flush for additional reliability
-        wp_schedule_single_event(time() + 5, 'balkay_delayed_flush_rewrite_rules');
-        add_action('balkay_delayed_flush_rewrite_rules', 'flush_rewrite_rules');
-        
-        // Force another flush on shutdown
-        add_action('shutdown', function() {
-            flush_rewrite_rules();
-        });
-        
-        error_log("BALKAy License: Plugin activated with enhanced rewrite rule flushing and module creation");
+        // Standard rewrite rule flush
+        flush_rewrite_rules();
     }
     
     /**
@@ -171,93 +144,12 @@ class License_Manager_Plugin {
             });
         }
         
-        // Initialize API endpoints (with enhanced reliability)
-        $api = new License_Manager_API();
-        
-        // Force aggressive rewrite rule management
-        $this->manage_rewrite_rules();
+        // Initialize API endpoints
+        new License_Manager_API();
         
         // Initialize custom post types
         new License_Manager_Customer();
         new License_Manager_License();
-        
-        // Add hook to verify routes are working after init
-        add_action('wp_loaded', array($this, 'verify_and_fix_routes'), 99);
-    }
-    
-    /**
-     * Manage rewrite rules more aggressively
-     */
-    private function manage_rewrite_rules() {
-        $needs_flush = false;
-        
-        // Check if we need to flush rewrite rules
-        if (get_option('license_manager_rewrite_rules_flushed') !== '1') {
-            $needs_flush = true;
-        }
-        
-        if (get_option('balkay_license_rewrite_flushed') !== BALKAY_LICENSE_VERSION) {
-            $needs_flush = true;
-        }
-        
-        // Also check if our custom rewrite rules exist
-        $rewrite_rules = get_option('rewrite_rules', array());
-        if (!isset($rewrite_rules['^api/validate_license/?$'])) {
-            $needs_flush = true;
-        }
-        
-        if ($needs_flush) {
-            error_log("BALKAy License: Flushing rewrite rules due to missing rules");
-            flush_rewrite_rules();
-            update_option('license_manager_rewrite_rules_flushed', '1');
-            update_option('balkay_license_rewrite_flushed', BALKAY_LICENSE_VERSION);
-        }
-    }
-    
-    /**
-     * Verify routes are working and attempt to fix if not
-     */
-    public function verify_and_fix_routes() {
-        // Only run this verification occasionally to avoid performance issues
-        $last_check = get_option('balkay_license_last_route_check', 0);
-        if (time() - $last_check < 300) { // 5 minutes
-            return;
-        }
-        
-        update_option('balkay_license_last_route_check', time());
-        
-        // Check if REST routes are accessible
-        if (class_exists('WP_REST_Server')) {
-            $rest_server = rest_get_server();
-            $routes = $rest_server->get_routes();
-            
-            $critical_routes = array(
-                '/' . 'balkay-license/v1' . '/validate',
-                '/' . 'balkay-license/v1' . '/validate_license'
-            );
-            
-            $missing_routes = array();
-            foreach ($critical_routes as $route) {
-                if (!isset($routes[$route])) {
-                    $missing_routes[] = $route;
-                }
-            }
-            
-            if (!empty($missing_routes)) {
-                error_log("BALKAy License: Missing critical routes: " . implode(', ', $missing_routes));
-                error_log("BALKAy License: Attempting to re-register routes");
-                
-                // Force route re-registration
-                global $wp_rest_server;
-                $wp_rest_server = null;
-                
-                // Re-initialize API
-                new License_Manager_API();
-                
-                // Flush rewrite rules again
-                flush_rewrite_rules();
-            }
-        }
     }
     
     /**
