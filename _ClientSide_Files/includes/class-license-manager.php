@@ -54,10 +54,10 @@ class Insurance_CRM_License_Manager {
         add_action('wp_ajax_nopriv_validate_license', array($this, 'ajax_validate_license'));
         add_action('wp_login', array($this, 'validate_license_on_login'), 10, 2);
         
-        // Periodic license check (every 60 minutes)
+        // Periodic license check (every 4 hours)
         add_action('insurance_crm_periodic_license_check', array($this, 'perform_periodic_license_check'));
         if (!wp_next_scheduled('insurance_crm_periodic_license_check')) {
-            wp_schedule_event(time(), 'insurance_crm_60_minutes', 'insurance_crm_periodic_license_check');
+            wp_schedule_event(time(), 'insurance_crm_4_hours', 'insurance_crm_periodic_license_check');
         }
         
         // Daily license logging (every 24 hours)
@@ -468,9 +468,9 @@ class Insurance_CRM_License_Manager {
      * Add custom cron schedules
      */
     public function add_custom_cron_schedules($schedules) {
-        $schedules['insurance_crm_60_minutes'] = array(
-            'interval' => 60 * MINUTE_IN_SECONDS,
-            'display' => __('Every 60 Minutes (Insurance CRM License Check)')
+        $schedules['insurance_crm_4_hours'] = array(
+            'interval' => 4 * 60 * MINUTE_IN_SECONDS,
+            'display' => __('Every 4 Hours (Insurance CRM License Check)')
         );
         return $schedules;
     }
@@ -488,10 +488,18 @@ class Insurance_CRM_License_Manager {
             return;
         }
 
-        error_log('[LISANS DEBUG] User login detected, performing license validation: ' . $user_login);
+        error_log('[LISANS DEBUG] User login detected: ' . $user_login);
         
-        // Perform immediate license check on every login
-        $this->perform_license_check();
+        // Only perform license check if not checked recently (within last 4 hours)
+        $last_check = get_option('insurance_crm_license_last_check', '');
+        $should_check = empty($last_check) || strtotime($last_check) < (time() - 4 * 60 * 60);
+        
+        if ($should_check) {
+            error_log('[LISANS DEBUG] Performing license validation on login: ' . $user_login);
+            $this->perform_license_check();
+        } else {
+            error_log('[LISANS DEBUG] Skipping license check - recently validated');
+        }
         
         // Get license details for logging
         $license_status = get_option('insurance_crm_license_status', 'inactive');
@@ -500,17 +508,19 @@ class Insurance_CRM_License_Manager {
         $is_restricted = get_option('insurance_crm_license_access_restricted', false);
         $is_bypassed = $this->license_api ? $this->license_api->is_license_bypassed() : false;
         
-        // Log license validation result to database
-        $this->log_license_validation_result($user->ID, array(
-            'user_login' => $user_login,
-            'license_status' => $license_status,
-            'license_key_partial' => !empty($license_key) ? substr($license_key, 0, 8) . '...' : 'None',
-            'license_expiry' => $license_expiry,
-            'is_restricted' => $is_restricted,
-            'is_bypassed' => $is_bypassed,
-            'validation_time' => current_time('mysql'),
-            'ip_address' => $this->get_client_ip()
-        ));
+        // Log license validation result to database (only if check was performed)
+        if ($should_check) {
+            $this->log_license_validation_result($user->ID, array(
+                'user_login' => $user_login,
+                'license_status' => $license_status,
+                'license_key_partial' => !empty($license_key) ? substr($license_key, 0, 8) . '...' : 'None',
+                'license_expiry' => $license_expiry,
+                'is_restricted' => $is_restricted,
+                'is_bypassed' => $is_bypassed,
+                'validation_time' => current_time('mysql'),
+                'ip_address' => $this->get_client_ip()
+            ));
+        }
         
         // If license is invalid or access is restricted, log them out
         if (!$this->can_access_data()) {
