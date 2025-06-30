@@ -37,7 +37,7 @@ class Insurance_CRM_License_Manager {
      */
     public function __construct($version) {
         $this->version = $version;
-        $this->grace_period_days = 7; // 1 week grace period
+        $this->grace_period_days = 14; // Extended grace period to 2 weeks
         
         // Initialize license API
         if (class_exists('Insurance_CRM_License_API')) {
@@ -54,11 +54,8 @@ class Insurance_CRM_License_Manager {
         add_action('wp_ajax_nopriv_validate_license', array($this, 'ajax_validate_license'));
         add_action('wp_login', array($this, 'validate_license_on_login'), 10, 2);
         
-        // Periodic license check (every 4 hours)
-        add_action('insurance_crm_periodic_license_check', array($this, 'perform_periodic_license_check'));
-        if (!wp_next_scheduled('insurance_crm_periodic_license_check')) {
-            wp_schedule_event(time(), 'insurance_crm_4_hours', 'insurance_crm_periodic_license_check');
-        }
+        // Clean up old cron schedules and set up new ones
+        $this->setup_cron_schedules();
         
         // Daily license logging (every 24 hours)
         add_action('insurance_crm_daily_license_log', array($this, 'perform_daily_license_logging'));
@@ -370,14 +367,30 @@ class Insurance_CRM_License_Manager {
             return;
         }
 
+        // Check if we recently had communication errors to avoid spamming failed requests
+        $last_comm_error = get_option('insurance_crm_license_last_comm_error', 0);
+        $error_cooldown = 2 * 60 * 60; // 2 hours cooldown after communication errors
+        
+        if ($last_comm_error && (time() - $last_comm_error) < $error_cooldown) {
+            error_log('[LISANS DEBUG] Skipping license check due to recent communication errors');
+            return;
+        }
+
         $response = $this->license_api->check_license_status($license_key);
         
         // Handle WP_Error objects (communication errors)
         if (is_object($response) && get_class($response) === 'WP_Error') {
             error_log('[LISANS DEBUG] License check communication error: ' . $response->get_error_message());
+            
+            // Record communication error timestamp to implement cooldown
+            update_option('insurance_crm_license_last_comm_error', time());
+            
             // Don't update status on communication error, keep last known status
             return; 
         }
+        
+        // Clear communication error timestamp on successful response
+        delete_option('insurance_crm_license_last_comm_error');
         
         // Handle successful server response
         if (is_array($response) && !isset($response['offline'])) {
@@ -401,6 +414,9 @@ class Insurance_CRM_License_Manager {
                     error_log('[LISANS DEBUG] License expired and grace period ended');
                     // Don't completely deactivate, but restrict access
                     update_option('insurance_crm_license_access_restricted', true);
+                } else {
+                    error_log('[LISANS DEBUG] License expired but still in grace period (' . $this->get_grace_period_days_remaining() . ' days remaining)');
+                    update_option('insurance_crm_license_access_restricted', false);
                 }
             } else {
                 // License is active, update all information
@@ -473,6 +489,22 @@ class Insurance_CRM_License_Manager {
             'display' => __('Every 4 Hours (Insurance CRM License Check)')
         );
         return $schedules;
+    }
+
+    /**
+     * Setup cron schedules and clean up old ones
+     */
+    private function setup_cron_schedules() {
+        // Clear old 60-minute schedule if it exists
+        if (wp_next_scheduled('insurance_crm_periodic_license_check')) {
+            wp_clear_scheduled_hook('insurance_crm_periodic_license_check');
+        }
+        
+        // Set up new 4-hour periodic license check
+        add_action('insurance_crm_periodic_license_check', array($this, 'perform_periodic_license_check'));
+        if (!wp_next_scheduled('insurance_crm_periodic_license_check')) {
+            wp_schedule_event(time(), 'insurance_crm_4_hours', 'insurance_crm_periodic_license_check');
+        }
     }
 
     /**
@@ -744,6 +776,9 @@ class Insurance_CRM_License_Manager {
         wp_clear_scheduled_hook('insurance_crm_daily_license_check');
         wp_clear_scheduled_hook('insurance_crm_periodic_license_check');
         wp_clear_scheduled_hook('insurance_crm_daily_license_log');
+        
+        // Clear communication error tracking
+        delete_option('insurance_crm_license_last_comm_error');
     }
     
     /**
