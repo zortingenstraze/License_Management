@@ -27,11 +27,11 @@
      * Initialize dashboard functionality
      */
     function initDashboard() {
-        // Auto-refresh dashboard stats every 5 minutes
+        // Auto-refresh dashboard stats every 30 minutes (reduced from 5 minutes)
         if ($('.license-manager-dashboard').length) {
             setInterval(function() {
                 refreshDashboardStats();
-            }, 300000); // 5 minutes
+            }, 1800000); // 30 minutes
         }
     }
 
@@ -130,9 +130,9 @@
      * Initialize AJAX handlers
      */
     function initAjaxHandlers() {
-        // Global AJAX error handler
+        // Global AJAX error handler - only show errors for user-initiated actions
         $(document).ajaxError(function(event, xhr, settings, error) {
-            // Log detailed error information to console
+            // Log detailed error information to console for debugging
             console.log('AJAX Error Details:', {
                 error: error,
                 xhr: xhr,
@@ -142,12 +142,25 @@
                 responseText: xhr.responseText
             });
             
-            // Create more informative error message for users
-            var errorMessage = 'An error occurred';
-            if (xhr.status && xhr.statusText) {
-                errorMessage += ' (Status: ' + xhr.status + ' - ' + xhr.statusText + ')';
+            // Only show error messages for user-initiated requests, not background license checks
+            // Skip error messages for license validation and status check requests
+            if (settings.url && (
+                settings.url.indexOf('validate_license') !== -1 || 
+                settings.url.indexOf('check_license') !== -1 ||
+                settings.url.indexOf('license_info') !== -1 ||
+                settings.url.indexOf('license/v1/') !== -1 ||
+                (settings.data && settings.data.indexOf && settings.data.indexOf('validate_license') !== -1)
+            )) {
+                // Silent failure for license-related background requests
+                return;
             }
-            errorMessage += '. Please try again.';
+            
+            // Show error messages only for explicit user actions
+            var errorMessage = 'İşlem tamamlanamadı';
+            if (xhr.status && xhr.statusText && xhr.status !== 0) {
+                errorMessage += ' (HTTP ' + xhr.status + ')';
+            }
+            errorMessage += '. Lütfen tekrar deneyin.';
             
             showNotice('error', errorMessage);
         });
@@ -321,6 +334,10 @@
             if (response.success) {
                 updateDashboardStats(response.data);
             }
+        })
+        .fail(function(xhr, status, error) {
+            // Silent failure for background dashboard refresh
+            console.log('Dashboard stats refresh failed (silent):', error);
         });
     }
 
