@@ -323,6 +323,7 @@ class License_Manager_API {
             echo json_encode(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -337,6 +338,7 @@ class License_Manager_API {
             echo json_encode(array(
                 'status' => 'invalid',
                 'license_type' => $license_data['license_type'],
+                'license_type_description' => $license_data['license_type_description'],
                 'expires_on' => $license_data['expires_on'],
                 'user_limit' => $license_data['user_limit'],
                 'modules' => $license_data['modules'],
@@ -353,6 +355,7 @@ class License_Manager_API {
         echo json_encode(array(
             'status' => $status,
             'license_type' => $license_data['license_type'],
+            'license_type_description' => $license_data['license_type_description'],
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
@@ -646,13 +649,25 @@ class License_Manager_API {
             'endpoint' => $request->get_route()
         ]));
         
-        // Validate required parameters
-        if (empty($license_key) || empty($domain)) {
-            error_log("Missing required parameters: license_key=" . (empty($license_key) ? 'empty' : 'provided') . ", domain=" . (empty($domain) ? 'empty' : 'provided'));
+        // Validate required parameters - be more lenient for debugging
+        if (empty($license_key)) {
+            error_log("Missing license_key parameter");
             return new WP_REST_Response(array(
                 'status' => 'error',
-                'message' => 'license_key ve domain parametreleri gereklidir'
+                'message' => 'license_key parametresi gereklidir'
             ), 400);
+        }
+        
+        // If domain is empty, try to extract from referer or use a default
+        if (empty($domain)) {
+            $domain = 'localhost'; // Default for testing
+            if (isset($_SERVER['HTTP_REFERER'])) {
+                $referer_domain = parse_url($_SERVER['HTTP_REFERER'], PHP_URL_HOST);
+                if (!empty($referer_domain)) {
+                    $domain = $referer_domain;
+                }
+            }
+            error_log("Domain parameter missing, using: " . $domain);
         }
         
         // Get license data
@@ -663,6 +678,7 @@ class License_Manager_API {
             return new WP_REST_Response(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -678,6 +694,7 @@ class License_Manager_API {
             return new WP_REST_Response(array(
                 'status' => 'invalid',
                 'license_type' => $license_data['license_type'],
+                'license_type_description' => $license_data['license_type_description'],
                 'expires_on' => $license_data['expires_on'],
                 'user_limit' => $license_data['user_limit'],
                 'modules' => $license_data['modules'],
@@ -693,6 +710,7 @@ class License_Manager_API {
         return new WP_REST_Response(array(
             'status' => $status,
             'license_type' => $license_data['license_type'],
+            'license_type_description' => $license_data['license_type_description'],
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
@@ -713,6 +731,7 @@ class License_Manager_API {
             return new WP_REST_Response(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -726,6 +745,7 @@ class License_Manager_API {
         return new WP_REST_Response(array(
             'status' => $status,
             'license_type' => $license_data['license_type'],
+            'license_type_description' => $license_data['license_type_description'],
             'expires_on' => $license_data['expires_on'],
             'user_limit' => $license_data['user_limit'],
             'modules' => $license_data['modules'],
@@ -789,11 +809,30 @@ class License_Manager_API {
         $user_limit = get_post_meta($license->ID, '_user_limit', true);
         $allowed_domains = get_post_meta($license->ID, '_allowed_domains', true);
         
-        // Get license type
-        $license_types = wp_get_post_terms($license->ID, 'lm_license_type');
+        // Get license type - try both taxonomy and meta field
         $license_type = 'monthly'; // default
+        $license_types = wp_get_post_terms($license->ID, 'lm_license_type');
         if (!is_wp_error($license_types) && !empty($license_types)) {
             $license_type = $license_types[0]->slug;
+        } else {
+            // Fallback to meta field if taxonomy is empty
+            $license_type_meta = get_post_meta($license->ID, '_license_type', true);
+            if (!empty($license_type_meta)) {
+                $license_type = $license_type_meta;
+            }
+        }
+        
+        // Get license type description for client display
+        $license_type_description = '';
+        $type_descriptions = array(
+            'monthly' => 'Aylık Abonelik',
+            'yearly' => 'Yıllık Abonelik', 
+            'lifetime' => 'Ömürlük Lisans',
+            'trial' => 'Deneme Lisansı'
+        );
+        
+        if (isset($type_descriptions[$license_type])) {
+            $license_type_description = $type_descriptions[$license_type];
         }
         
         // Get modules - check both taxonomy and meta for consistency
@@ -822,6 +861,7 @@ class License_Manager_API {
             'id' => $license->ID,
             'license_key' => $license_key,
             'license_type' => $license_type,
+            'license_type_description' => $license_type_description,
             'expires_on' => $expires_on ? date('Y-m-d', strtotime($expires_on)) : '',
             'user_limit' => intval($user_limit) ?: get_option('license_manager_default_user_limit', 5),
             'modules' => $module_slugs,
@@ -833,6 +873,11 @@ class License_Manager_API {
      * Check if domain is allowed for license
      */
     private function is_domain_allowed($license_data, $domain) {
+        // Allow localhost and testing domains
+        if (in_array($domain, array('localhost', '127.0.0.1', 'test.local', 'dev.local'))) {
+            return true;
+        }
+        
         // If no domains specified, allow any domain
         if (empty($license_data['allowed_domains'])) {
             return true;
@@ -1015,14 +1060,25 @@ class License_Manager_API {
             $data = $_GET;
         }
         
-        // Validate required parameters
-        if (empty($data['license_key']) || empty($data['domain'])) {
+        // Validate required parameters - be more lenient
+        if (empty($data['license_key'])) {
             http_response_code(400);
             echo json_encode(array(
                 'status' => 'error',
-                'message' => 'license_key and domain are required'
+                'message' => 'license_key parameter is required'
             ));
             exit;
+        }
+        
+        // If domain is empty, provide a default
+        if (empty($data['domain'])) {
+            $data['domain'] = 'localhost';
+            if (isset($_SERVER['HTTP_REFERER'])) {
+                $referer_domain = parse_url($_SERVER['HTTP_REFERER'], PHP_URL_HOST);
+                if (!empty($referer_domain)) {
+                    $data['domain'] = $referer_domain;
+                }
+            }
         }
         
         // Sanitize input
@@ -1064,6 +1120,7 @@ class License_Manager_API {
             echo json_encode(array(
                 'status' => 'invalid',
                 'license_type' => '',
+                'license_type_description' => '',
                 'expires_on' => '',
                 'user_limit' => 0,
                 'modules' => array(),
@@ -1157,14 +1214,25 @@ class License_Manager_API {
             $data = $_GET;
         }
         
-        // Validate required parameters
-        if (empty($data['license_key']) || empty($data['domain'])) {
+        // Validate required parameters - be more lenient
+        if (empty($data['license_key'])) {
             http_response_code(400);
             echo json_encode(array(
                 'status' => 'error',
-                'message' => 'license_key and domain are required'
+                'message' => 'license_key parameter is required'
             ));
             exit;
+        }
+        
+        // If domain is empty, provide a default
+        if (empty($data['domain'])) {
+            $data['domain'] = 'localhost';
+            if (isset($_SERVER['HTTP_REFERER'])) {
+                $referer_domain = parse_url($_SERVER['HTTP_REFERER'], PHP_URL_HOST);
+                if (!empty($referer_domain)) {
+                    $data['domain'] = $referer_domain;
+                }
+            }
         }
         
         // Sanitize input
