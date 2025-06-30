@@ -886,20 +886,23 @@ class Insurance_CRM_License_Manager {
         
         $table_name = $wpdb->prefix . 'insurance_license_logs';
         
+        // Ensure all required fields are present and not null
+        $log_data = array(
+            'user_id' => !empty($user_id) ? intval($user_id) : 0,
+            'user_login' => !empty($validation_data['user_login']) ? $validation_data['user_login'] : 'unknown',
+            'license_status' => !empty($validation_data['license_status']) ? $validation_data['license_status'] : 'unknown',
+            'license_key_partial' => !empty($validation_data['license_key_partial']) ? $validation_data['license_key_partial'] : '',
+            'license_expiry' => !empty($validation_data['license_expiry']) ? $validation_data['license_expiry'] : '',
+            'is_restricted' => isset($validation_data['is_restricted']) ? ($validation_data['is_restricted'] ? 1 : 0) : 0,
+            'is_bypassed' => isset($validation_data['is_bypassed']) ? ($validation_data['is_bypassed'] ? 1 : 0) : 0,
+            'validation_result' => isset($validation_data['license_status']) && $validation_data['license_status'] === 'active' ? 'success' : 'failed',
+            'ip_address' => !empty($validation_data['ip_address']) ? $validation_data['ip_address'] : '0.0.0.0',
+            'created_at' => !empty($validation_data['validation_time']) ? $validation_data['validation_time'] : current_time('mysql')
+        );
+        
         $wpdb->insert(
             $table_name,
-            array(
-                'user_id' => $user_id,
-                'user_login' => $validation_data['user_login'],
-                'license_status' => $validation_data['license_status'],
-                'license_key_partial' => $validation_data['license_key_partial'],
-                'license_expiry' => $validation_data['license_expiry'],
-                'is_restricted' => $validation_data['is_restricted'] ? 1 : 0,
-                'is_bypassed' => $validation_data['is_bypassed'] ? 1 : 0,
-                'validation_result' => $validation_data['license_status'] === 'active' ? 'success' : 'failed',
-                'ip_address' => $validation_data['ip_address'],
-                'created_at' => $validation_data['validation_time']
-            ),
+            $log_data,
             array('%d', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s')
         );
     }

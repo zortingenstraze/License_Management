@@ -1186,7 +1186,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php
 // Add module access checking JavaScript
-if ($insurance_crm_license_manager) {
+if ($insurance_crm_license_manager && method_exists($insurance_crm_license_manager, 'get_module_check_js')) {
     echo $insurance_crm_license_manager->get_module_check_js();
+} else {
+    // Fallback JavaScript if license manager is not available
+    echo '<script>
+    window.insuranceCRMLicensedModules = [];
+    
+    function checkModuleAccess(module) {
+        return true; // Allow all access if license manager is not available
+    }
+    
+    function showModuleRestriction(module) {
+        console.warn("License manager not available for module:", module);
+        return true;
+    }
+
+    function requireModuleAccess(module) {
+        return checkModuleAccess(module);
+    }
+    </script>';
 }
 ?>
