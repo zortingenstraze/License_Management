@@ -39,8 +39,11 @@ class License_Manager_Modules {
      * Get module by ID
      */
     public function get_module($term_id) {
+        error_log("License Manager Modules: Getting module by ID: $term_id");
+        
         $term = get_term($term_id, 'lm_modules');
         if (is_wp_error($term) || !$term) {
+            error_log("License Manager Modules: Module not found for ID: $term_id");
             return null;
         }
         
@@ -49,6 +52,7 @@ class License_Manager_Modules {
         $term->description = get_term_meta($term->term_id, 'description', true);
         $term->category = get_term_meta($term->term_id, 'category', true);
         
+        error_log("License Manager Modules: Successfully retrieved module: " . $term->name);
         return $term;
     }
     

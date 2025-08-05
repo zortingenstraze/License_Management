@@ -504,21 +504,37 @@ class Insurance_CRM_License_API {
             if ($this->debug_mode) {
                 error_log('License API: Modules request failed: ' . $response->get_error_message());
             }
-            return array('modules' => array());
+            return array('modules' => array(), 'error' => $response->get_error_message());
         }
         
+        $response_code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
+        
+        if ($response_code !== 200) {
+            if ($this->debug_mode) {
+                error_log('License API: Modules request returned code: ' . $response_code);
+                error_log('License API: Response body: ' . $body);
+            }
+            return array('modules' => array(), 'error' => "HTTP $response_code");
+        }
+        
         $data = json_decode($body, true);
         
         if (!is_array($data)) {
             if ($this->debug_mode) {
                 error_log('License API: Invalid modules response: ' . $body);
             }
-            return array('modules' => array());
+            return array('modules' => array(), 'error' => 'Invalid JSON response');
         }
         
         if ($this->debug_mode) {
-            error_log('License API: Modules response: ' . $body);
+            $module_count = isset($data['modules']) ? count($data['modules']) : 0;
+            error_log('License API: Successfully retrieved ' . $module_count . ' modules');
+            if (isset($data['modules'])) {
+                foreach ($data['modules'] as $module) {
+                    error_log('License API: Module - ' . $module['name'] . ' (slug: ' . $module['slug'] . ')');
+                }
+            }
         }
         
         return $data;

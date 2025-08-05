@@ -815,6 +815,7 @@ class License_Manager_API {
             foreach ($modules as $module) {
                 $module_slugs[] = $module->slug;
             }
+            error_log("BALKAy License API: Found modules from taxonomy: " . implode(', ', $module_slugs));
         }
         
         // If no modules from taxonomy, try meta fallback
@@ -822,13 +823,17 @@ class License_Manager_API {
             $modules_meta = get_post_meta($license->ID, '_modules', true);
             if (is_array($modules_meta)) {
                 $module_slugs = $modules_meta;
+                error_log("BALKAy License API: Found modules from meta: " . implode(', ', $module_slugs));
             }
         }
         
         // If still no modules assigned, use default
         if (empty($module_slugs)) {
             $module_slugs = get_option('license_manager_default_modules', array('dashboard', 'customers', 'policies', 'quotes', 'tasks', 'reports', 'data_transfer'));
+            error_log("BALKAy License API: Using default modules: " . implode(', ', $module_slugs));
         }
+        
+        error_log("BALKAy License API: Final modules for license " . $license_key . ": " . implode(', ', $module_slugs));
         
         return array(
             'id' => $license->ID,
@@ -1263,12 +1268,16 @@ class License_Manager_API {
      * Get modules endpoint
      */
     public function get_modules($request) {
+        error_log("BALKAy License API: get_modules endpoint called");
+        
         $database = new License_Manager_Database();
         $modules = $database->get_available_modules();
         
+        error_log("BALKAy License API: Retrieved " . count($modules) . " modules from database");
+        
         $response_data = array();
         foreach ($modules as $module) {
-            $response_data[] = array(
+            $module_data = array(
                 'id' => $module->term_id,
                 'name' => $module->name,
                 'slug' => $module->slug,
@@ -1276,10 +1285,19 @@ class License_Manager_API {
                 'description' => $module->description,
                 'category' => $module->category
             );
+            $response_data[] = $module_data;
+            
+            error_log("BALKAy License API: Module - " . $module->name . " (slug: " . $module->slug . ", view: " . $module->view_parameter . ")");
         }
         
-        return new WP_REST_Response(array(
-            'modules' => $response_data
-        ), 200);
+        $response = array(
+            'success' => true,
+            'modules' => $response_data,
+            'total' => count($response_data)
+        );
+        
+        error_log("BALKAy License API: Returning response with " . count($response_data) . " modules");
+        
+        return new WP_REST_Response($response, 200);
     }
 }
