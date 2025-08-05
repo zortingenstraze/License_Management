@@ -879,6 +879,7 @@ class Insurance_CRM_License_Manager {
             'expiry' => get_option('insurance_crm_license_expiry', ''),
             'user_limit' => get_option('insurance_crm_license_user_limit', 5),
             'modules' => get_option('insurance_crm_license_modules', array()),
+            'licensed_modules' => $this->get_licensed_modules(), // Add detailed modules
             'last_check' => get_option('insurance_crm_license_last_check', ''),
             'current_users' => $this->get_current_user_count(),
             'in_grace_period' => $this->is_in_grace_period(),
@@ -886,6 +887,66 @@ class Insurance_CRM_License_Manager {
             'expiring_soon' => $this->is_license_expiring_soon(3),
             'days_until_expiry' => $this->get_days_until_expiry()
         );
+    }
+
+    /**
+     * Get licensed modules with detailed information
+     * 
+     * @return array Licensed modules with details
+     */
+    public function get_licensed_modules() {
+        // Get module slugs from license
+        $module_slugs = get_option('insurance_crm_license_modules', array());
+        
+        if (empty($module_slugs) || !is_array($module_slugs)) {
+            error_log('License Manager: No licensed module slugs found');
+            return array();
+        }
+        
+        error_log('License Manager: Licensed module slugs: ' . implode(', ', $module_slugs));
+        
+        // Get module mappings (view parameters)
+        $module_mappings = $this->get_module_view_mappings();
+        
+        // Get available modules from server for detailed information
+        $available_modules = array();
+        if ($this->license_api) {
+            $modules_response = $this->license_api->get_modules();
+            if (isset($modules_response['modules']) && is_array($modules_response['modules'])) {
+                foreach ($modules_response['modules'] as $module) {
+                    if (isset($module['slug'])) {
+                        $available_modules[$module['slug']] = $module;
+                    }
+                }
+            }
+        }
+        
+        // Build licensed modules with details
+        $licensed_modules = array();
+        foreach ($module_slugs as $slug) {
+            $module_info = array(
+                'slug' => $slug,
+                'name' => ucfirst(str_replace(array('-', '_'), ' ', $slug)), // Default name
+                'view_parameter' => isset($module_mappings[$slug]) ? $module_mappings[$slug] : $slug,
+                'description' => '',
+                'category' => 'general'
+            );
+            
+            // Enhance with server data if available
+            if (isset($available_modules[$slug])) {
+                $server_module = $available_modules[$slug];
+                $module_info['name'] = $server_module['name'] ?? $module_info['name'];
+                $module_info['description'] = $server_module['description'] ?? '';
+                $module_info['category'] = $server_module['category'] ?? 'general';
+                $module_info['id'] = $server_module['id'] ?? null;
+            }
+            
+            $licensed_modules[] = $module_info;
+            error_log('License Manager: Licensed module details - ' . $module_info['name'] . ' (' . $slug . ')');
+        }
+        
+        error_log('License Manager: Retrieved ' . count($licensed_modules) . ' licensed modules with details');
+        return $licensed_modules;
     }
 
     /**
