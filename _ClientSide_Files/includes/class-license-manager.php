@@ -862,29 +862,7 @@ class Insurance_CRM_License_Manager {
         return $mappings;
     }
     
-    /**
-     * Force refresh module mappings cache
-     * 
-     * @return array Fresh mappings
-     */
-    public function refresh_module_mappings() {
-        error_log('License Manager: Force refreshing module mappings');
-        
-        // Clear the cache
-        delete_transient('insurance_crm_module_mappings');
-        
-        // Get fresh mappings
-        return $this->get_module_view_mappings();
-    }
-    
-    /**
-     * Get current module mappings for debugging
-     * 
-     * @return array Current mappings
-     */
-    public function get_current_module_mappings() {
-        return $this->get_module_view_mappings();
-    }
+
 
     /**
      * Get license information for display
