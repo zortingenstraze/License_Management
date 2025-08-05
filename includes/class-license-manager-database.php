@@ -543,6 +543,14 @@ class License_Manager_Database {
     }
     
     /**
+     * Reset default modules creation flag
+     */
+    public function reset_defaults_flag() {
+        delete_option('license_manager_defaults_created');
+        error_log('License Manager: Reset defaults creation flag');
+    }
+    
+    /**
      * Clean orphaned module relationships (terms that exist but aren't properly linked)
      */
     private function clean_orphaned_module_relationships() {
@@ -615,22 +623,36 @@ class License_Manager_Database {
      * Get all available modules 
      */
     public function get_available_modules() {
+        // Ensure taxonomy is registered
+        if (!taxonomy_exists('lm_modules')) {
+            $this->register_modules_taxonomy();
+            // Force flush rewrite rules to ensure taxonomy is available
+            flush_rewrite_rules();
+        }
+        
         // First try to get existing modules
         $modules = get_terms(array(
             'taxonomy' => 'lm_modules',
             'hide_empty' => false,
         ));
         
-        // If no modules exist or there's an error, create defaults
-        if (is_wp_error($modules) || empty($modules)) {
-            error_log('License Manager: No modules found, creating defaults');
-            $this->force_create_default_modules();
-            
-            // Try again after creating defaults
-            $modules = get_terms(array(
-                'taxonomy' => 'lm_modules',
-                'hide_empty' => false,
-            ));
+        // Only create defaults if taxonomy exists but NO modules exist AND we haven't created defaults before
+        if (!is_wp_error($modules) && empty($modules)) {
+            $defaults_created = get_option('license_manager_defaults_created', false);
+            if (!$defaults_created) {
+                error_log('License Manager: No modules found and defaults not created yet, creating defaults');
+                $this->force_create_default_modules();
+                update_option('license_manager_defaults_created', true);
+                
+                // Try again after creating defaults
+                $modules = get_terms(array(
+                    'taxonomy' => 'lm_modules',
+                    'hide_empty' => false,
+                ));
+            } else {
+                error_log('License Manager: No modules found but defaults already created - returning empty array');
+                return array();
+            }
         }
         
         if (is_wp_error($modules)) {
@@ -656,6 +678,8 @@ class License_Manager_Database {
         // Ensure the taxonomy is registered
         if (!taxonomy_exists('lm_modules')) {
             $this->register_modules_taxonomy();
+            // Force flush rewrite rules to ensure taxonomy is available
+            flush_rewrite_rules();
         }
         
         // Check if module already exists
@@ -689,9 +713,16 @@ class License_Manager_Database {
             error_log("License Manager: Added category: $category");
         }
         
-        // Clear any module caches
-        wp_cache_delete('license_manager_modules', 'terms');
-        delete_transient('insurance_crm_module_mappings');
+        // Clear comprehensive caches to ensure new module is visible immediately
+        wp_cache_flush(); // Clear all WordPress cache
+        delete_transient('insurance_crm_module_mappings'); // Clear client-side cache
+        clean_term_cache($term_id, 'lm_modules'); // Clear specific term cache
+        
+        // Ensure taxonomy cache is cleared
+        wp_cache_delete('all_ids', 'lm_modules');
+        wp_cache_delete('get', 'lm_modules');
+        
+        error_log("License Manager: Cleared all caches for new module: $slug");
         
         return $term_id;
     }
@@ -732,9 +763,14 @@ class License_Manager_Database {
             error_log("License Manager: Updated category: $category");
         }
         
-        // Clear any module caches
-        wp_cache_delete('license_manager_modules', 'terms');
-        delete_transient('insurance_crm_module_mappings');
+        // Clear comprehensive caches
+        wp_cache_flush(); // Clear all WordPress cache
+        delete_transient('insurance_crm_module_mappings'); // Clear client-side cache
+        clean_term_cache($term_id, 'lm_modules'); // Clear specific term cache
+        
+        // Ensure taxonomy cache is cleared
+        wp_cache_delete('all_ids', 'lm_modules');
+        wp_cache_delete('get', 'lm_modules');
         
         error_log("License Manager: Successfully updated module ID: $term_id");
         return $term_id;
@@ -761,9 +797,14 @@ class License_Manager_Database {
             return $result;
         }
         
-        // Clear any module caches
-        wp_cache_delete('license_manager_modules', 'terms');
-        delete_transient('insurance_crm_module_mappings');
+        // Clear comprehensive caches
+        wp_cache_flush(); // Clear all WordPress cache
+        delete_transient('insurance_crm_module_mappings'); // Clear client-side cache
+        clean_term_cache($term_id, 'lm_modules'); // Clear specific term cache
+        
+        // Ensure taxonomy cache is cleared
+        wp_cache_delete('all_ids', 'lm_modules');
+        wp_cache_delete('get', 'lm_modules');
         
         error_log("License Manager: Successfully deleted module ID: $term_id");
         return $result;
