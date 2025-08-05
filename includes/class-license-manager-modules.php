@@ -26,6 +26,8 @@ class License_Manager_Modules {
         add_action('admin_post_license_manager_add_module', array($this, 'handle_add_module'));
         add_action('admin_post_license_manager_edit_module', array($this, 'handle_edit_module'));
         add_action('admin_post_license_manager_delete_module', array($this, 'handle_delete_module'));
+        add_action('admin_post_license_manager_debug_modules', array($this, 'handle_debug_modules'));
+        add_action('admin_post_license_manager_fix_modules', array($this, 'handle_fix_modules'));
     }
     
     /**
@@ -47,11 +49,41 @@ class License_Manager_Modules {
             $this->database->register_modules_taxonomy();
             // Force flush to ensure taxonomy is available
             flush_rewrite_rules(false);
+            // Small delay to ensure registration is complete
+            usleep(100000); // 0.1 seconds
         }
         
-        $term = get_term($term_id, 'lm_modules');
+        // Try with retry logic for robustness
+        $retry_count = 0;
+        $max_retries = 3;
+        $term = false;
+        
+        while ($retry_count < $max_retries && (is_wp_error($term) || !$term)) {
+            // Clear relevant caches before retry if needed
+            if ($retry_count > 0) {
+                clean_term_cache($term_id, 'lm_modules');
+                wp_cache_delete($term_id, 'lm_modules');
+                error_log("License Manager Modules: Retry $retry_count - cleared caches for term: $term_id");
+            }
+            
+            $term = get_term($term_id, 'lm_modules');
+            
+            if (is_wp_error($term)) {
+                error_log("License Manager Modules: Error getting module (attempt " . ($retry_count + 1) . "): " . $term->get_error_message());
+                if ($retry_count < $max_retries - 1) {
+                    usleep(200000); // 0.2 seconds delay between retries
+                }
+            } elseif (!$term) {
+                error_log("License Manager Modules: Module not found (attempt " . ($retry_count + 1) . ") for ID: $term_id");
+                if ($retry_count < $max_retries - 1) {
+                    usleep(200000); // 0.2 seconds delay between retries
+                }
+            }
+            $retry_count++;
+        }
+        
         if (is_wp_error($term) || !$term) {
-            error_log("License Manager Modules: Module not found for ID: $term_id. Error: " . (is_wp_error($term) ? $term->get_error_message() : 'Term is null'));
+            error_log("License Manager Modules: Final failure - Module not found for ID: $term_id after $max_retries attempts");
             return null;
         }
         
@@ -60,7 +92,7 @@ class License_Manager_Modules {
         $term->description = get_term_meta($term->term_id, 'description', true);
         $term->category = get_term_meta($term->term_id, 'category', true);
         
-        error_log("License Manager Modules: Successfully retrieved module: " . $term->name . " (view: " . $term->view_parameter . ")");
+        error_log("License Manager Modules: Successfully retrieved module: " . $term->name . " (ID: $term_id, view: " . $term->view_parameter . ")");
         return $term;
     }
     
@@ -271,6 +303,77 @@ class License_Manager_Modules {
         wp_redirect(add_query_arg(array(
             'page' => 'license-manager-modules',
             'message' => 'module_deleted'
+        ), admin_url('admin.php')));
+        exit;
+    }
+    
+    /**
+     * Handle debug modules request
+     */
+    public function handle_debug_modules() {
+        // Check permissions
+        if (!current_user_can('manage_license_manager')) {
+            wp_die(__('You do not have sufficient permissions to access this page.'));
+        }
+        
+        // Get modules for debugging
+        $modules = $this->get_modules();
+        $debug_info = array();
+        
+        $debug_info[] = "=== Module Debug Information ===";
+        $debug_info[] = "Taxonomy exists: " . (taxonomy_exists('lm_modules') ? 'Yes' : 'No');
+        $debug_info[] = "Total modules found: " . count($modules);
+        $debug_info[] = "Defaults created flag: " . (get_option('license_manager_defaults_created', false) ? 'Yes' : 'No');
+        $debug_info[] = "";
+        
+        if (!empty($modules)) {
+            $debug_info[] = "=== Module List ===";
+            foreach ($modules as $module) {
+                $debug_info[] = "ID: {$module->term_id} | Name: {$module->name} | Slug: {$module->slug}";
+                $debug_info[] = "  View Parameter: " . get_term_meta($module->term_id, 'view_parameter', true);
+                $debug_info[] = "  Description: " . get_term_meta($module->term_id, 'description', true);
+                $debug_info[] = "  Category: " . get_term_meta($module->term_id, 'category', true);
+                $debug_info[] = "";
+            }
+        } else {
+            $debug_info[] = "No modules found!";
+        }
+        
+        // Return debug info
+        wp_redirect(add_query_arg(array(
+            'page' => 'license-manager-modules',
+            'debug_info' => base64_encode(implode("\n", $debug_info))
+        ), admin_url('admin.php')));
+        exit;
+    }
+    
+    /**
+     * Handle fix modules request  
+     */
+    public function handle_fix_modules() {
+        // Check permissions
+        if (!current_user_can('manage_license_manager')) {
+            wp_die(__('You do not have sufficient permissions to access this page.'));
+        }
+        
+        // Clear all module-related caches
+        wp_cache_flush();
+        clean_taxonomy_cache('lm_modules');
+        delete_transient('insurance_crm_module_mappings');
+        
+        // Clear any cached module lists
+        wp_cache_delete('lm_modules', 'terms');
+        wp_cache_delete('license_manager_modules', 'terms');
+        wp_cache_delete('all_ids', 'lm_modules');
+        wp_cache_delete('get', 'lm_modules');
+        
+        // Force refresh default modules if needed
+        $this->database->refresh_default_modules();
+        
+        // Success
+        wp_redirect(add_query_arg(array(
+            'page' => 'license-manager-modules',
+            'message' => 'modules_fixed'
         ), admin_url('admin.php')));
         exit;
     }

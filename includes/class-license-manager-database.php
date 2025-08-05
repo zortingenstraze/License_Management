@@ -654,16 +654,25 @@ class License_Manager_Database {
             usleep(100000); // 0.1 seconds
         }
         
-        // Try to get existing modules with retry logic
+        // Try to get existing modules with retry logic and fresh cache
         $retry_count = 0;
         $max_retries = 3;
         $modules = false;
         
         while ($retry_count < $max_retries && (is_wp_error($modules) || $modules === false)) {
+            // Force fresh cache on each retry
+            if ($retry_count > 0) {
+                wp_cache_flush();
+                clean_taxonomy_cache('lm_modules');
+                wp_cache_delete('lm_modules', 'terms');
+                wp_cache_delete('license_manager_modules', 'terms');
+            }
+            
             $modules = get_terms(array(
                 'taxonomy' => 'lm_modules',
                 'hide_empty' => false,
-                'cache_domain' => 'license_manager_modules'
+                'cache_domain' => 'license_manager_modules_fresh_' . time(), // Force fresh cache
+                'update_term_meta_cache' => true // Ensure meta is loaded
             ));
             
             if (is_wp_error($modules)) {
@@ -800,12 +809,24 @@ class License_Manager_Database {
         wp_cache_flush(); // Clear all WordPress cache
         delete_transient('insurance_crm_module_mappings'); // Clear client-side cache
         clean_term_cache($term_id, 'lm_modules'); // Clear specific term cache
+        clean_taxonomy_cache('lm_modules'); // Clear taxonomy cache
         
         // Ensure taxonomy cache is cleared
         wp_cache_delete('all_ids', 'lm_modules');
         wp_cache_delete('get', 'lm_modules');
         
-        error_log("License Manager: Cleared all caches for new module: $slug");
+        // Force clear any get_terms caches
+        wp_cache_delete('lm_modules', 'terms');
+        wp_cache_delete('license_manager_modules', 'terms');
+        
+        // Clear object cache for module queries
+        wp_cache_flush_group('terms');
+        
+        // Clear any cached module lists
+        delete_option('_transient_timeout_lm_modules_cache');
+        delete_option('_transient_lm_modules_cache');
+        
+        error_log("License Manager: Cleared comprehensive caches for new module: $slug (ID: $term_id)");
         
         return $term_id;
     }

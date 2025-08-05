@@ -159,6 +159,7 @@ if (isset($_POST['test_connection']) && isset($_POST['test_nonce']) && wp_verify
 $license_info = array();
 if ($insurance_crm_license_manager) {
     $license_info = $insurance_crm_license_manager->get_license_info();
+    error_log('License Management Template: Got license info from manager with ' . count($license_info['licensed_modules'] ?? array()) . ' licensed modules');
 } else {
     // Fallback - get from options directly
     $license_info = array(
@@ -170,11 +171,13 @@ if ($insurance_crm_license_manager) {
         'expiry' => get_option('insurance_crm_license_expiry', ''),
         'user_limit' => get_option('insurance_crm_license_user_limit', 5),
         'modules' => get_option('insurance_crm_license_modules', array()),
+        'licensed_modules' => array(), // Empty for fallback
         'last_check' => get_option('insurance_crm_license_last_check', ''),
         'current_users' => 0,
         'in_grace_period' => false,
         'grace_days_remaining' => 0
     );
+    error_log('License Management Template: Using fallback license info (no manager available)');
 }
 
 // Get current user count
@@ -1029,6 +1032,15 @@ if ($license_status === 'active' && in_array($license_type, array('monthly', 'ye
         <div class="no-modules-message">
             <i class="fas fa-info-circle"></i>
             <p>Henüz hiçbir modül lisansınıza atanmamış. Lütfen sistem yöneticinizle iletişime geçin.</p>
+            <?php if (defined('WP_DEBUG') && WP_DEBUG): ?>
+            <div style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-left: 3px solid #0073aa; font-size: 12px;">
+                <strong>Debug Info:</strong><br>
+                License status: <?php echo esc_html($license_status); ?><br>
+                License modules option: <?php echo esc_html(implode(', ', get_option('insurance_crm_license_modules', array()))); ?><br>
+                Licensed modules count: <?php echo count($license_info['licensed_modules'] ?? array()); ?><br>
+                Manager available: <?php echo $insurance_crm_license_manager ? 'Yes' : 'No'; ?>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
     <?php endif; ?>
