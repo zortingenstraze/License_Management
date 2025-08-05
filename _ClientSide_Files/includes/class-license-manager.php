@@ -917,9 +917,20 @@ class Insurance_CRM_License_Manager {
                 }
             }
             
+            // If still no modules, try to get from backend if available
+            if (empty($module_slugs) || !is_array($module_slugs)) {
+                error_log('License Manager: Attempting to get modules from backend admin interface');
+                $backend_modules = $this->get_backend_licensed_modules();
+                if (!empty($backend_modules)) {
+                    $module_slugs = array_column($backend_modules, 'slug');
+                    update_option('insurance_crm_license_modules', $module_slugs);
+                    error_log('License Manager: Retrieved modules from backend: ' . implode(', ', $module_slugs));
+                }
+            }
+            
             // If still no modules, return empty array
             if (empty($module_slugs) || !is_array($module_slugs)) {
-                error_log('License Manager: Still no licensed modules after refresh attempt');
+                error_log('License Manager: Still no licensed modules after all refresh attempts');
                 return array();
             }
         }
@@ -1011,6 +1022,73 @@ class Insurance_CRM_License_Manager {
         
         error_log('License Manager: Retrieved ' . count($licensed_modules) . ' licensed modules with details');
         return $licensed_modules;
+    }
+
+    /**
+     * Get licensed modules from backend admin interface
+     * This method is specifically for client-side backend admin panel integration
+     * 
+     * @return array Licensed modules from backend
+     */
+    public function get_backend_licensed_modules() {
+        error_log('License Manager: Attempting to retrieve modules from backend admin interface');
+        
+        // Check if we're in admin context and can access backend functionality
+        if (!is_admin()) {
+            error_log('License Manager: Not in admin context, cannot access backend modules');
+            return array();
+        }
+        
+        // Try to get modules from the current license validation
+        $license_key = get_option('insurance_crm_license_key', '');
+        if (empty($license_key)) {
+            error_log('License Manager: No license key available for backend module retrieval');
+            return array();
+        }
+        
+        // Get all available modules from server and match with license
+        $backend_modules = array();
+        if ($this->license_api) {
+            $modules_response = $this->license_api->get_modules();
+            
+            if (isset($modules_response['modules']) && is_array($modules_response['modules'])) {
+                $available_modules = $modules_response['modules'];
+                
+                // Get current license info to see which modules are allowed
+                $license_info = $this->license_api->get_license_info($license_key);
+                $allowed_module_slugs = array();
+                
+                if (isset($license_info['modules']) && is_array($license_info['modules'])) {
+                    $allowed_module_slugs = $license_info['modules'];
+                } else if (isset($license_info['success']) && $license_info['success'] && isset($license_info['data']['modules'])) {
+                    $allowed_module_slugs = $license_info['data']['modules'];
+                }
+                
+                error_log('License Manager: Backend allowed modules: ' . implode(', ', $allowed_module_slugs));
+                
+                // Filter available modules to only licensed ones
+                foreach ($available_modules as $module) {
+                    if (isset($module['slug']) && in_array($module['slug'], $allowed_module_slugs)) {
+                        $backend_modules[] = array(
+                            'slug' => $module['slug'],
+                            'name' => $module['name'] ?? ucfirst(str_replace(array('-', '_'), ' ', $module['slug'])),
+                            'description' => $module['description'] ?? '',
+                            'view_parameter' => $module['view_parameter'] ?? $module['slug'],
+                            'category' => $module['category'] ?? 'general',
+                            'status' => 'active'
+                        );
+                        error_log('License Manager: Added backend licensed module: ' . $module['slug']);
+                    }
+                }
+            } else {
+                error_log('License Manager: Invalid or empty modules response from backend API');
+            }
+        } else {
+            error_log('License Manager: No license API instance available for backend module retrieval');
+        }
+        
+        error_log('License Manager: Retrieved ' . count($backend_modules) . ' modules from backend admin interface');
+        return $backend_modules;
     }
 
     /**

@@ -690,7 +690,7 @@ class License_Manager_Database {
             return array();
         }
         
-        // Enhanced logic: Handle empty modules more intelligently
+        // Simplified logic: Only create defaults if truly no modules exist and none created before
         if (empty($modules)) {
             $defaults_created = get_option('license_manager_defaults_created', false);
             
@@ -698,37 +698,26 @@ class License_Manager_Database {
                 error_log('License Manager: No modules found and defaults not created yet, creating defaults');
                 $this->force_create_default_modules();
                 update_option('license_manager_defaults_created', true);
+                
+                // Clear caches and retry once
+                wp_cache_flush();
+                clean_taxonomy_cache('lm_modules');
+                
+                $modules = get_terms(array(
+                    'taxonomy' => 'lm_modules',
+                    'hide_empty' => false,
+                    'cache_domain' => 'license_manager_modules_initial_' . time(),
+                    'update_term_meta_cache' => true
+                ));
+                
+                if (is_wp_error($modules)) {
+                    error_log('License Manager: Error getting modules after initial creation: ' . $modules->get_error_message());
+                    return array();
+                }
             } else {
-                error_log('License Manager: No modules found but defaults already created - attempting recovery');
-                // If defaults were created but no modules found, this indicates a serious issue
-                // Try to fix by recreating defaults and clearing the flag
-                $this->force_create_default_modules();
-                error_log('License Manager: Recreated default modules for recovery');
-            }
-            
-            // Clear comprehensive caches after creating/recreating defaults
-            wp_cache_flush();
-            clean_taxonomy_cache('lm_modules');
-            wp_cache_delete('lm_modules', 'terms');
-            wp_cache_delete('license_manager_modules', 'terms');
-            
-            // Try again after creating defaults with a small delay
-            usleep(100000); // 0.1 seconds
-            $modules = get_terms(array(
-                'taxonomy' => 'lm_modules',
-                'hide_empty' => false,
-                'cache_domain' => 'license_manager_modules_recovery_' . time(),
-                'update_term_meta_cache' => true
-            ));
-            
-            if (is_wp_error($modules)) {
-                error_log('License Manager: Error getting modules after creating defaults: ' . $modules->get_error_message());
+                error_log('License Manager: No modules found but defaults already created - returning empty array to prevent interference');
+                // Don't recreate if defaults were already created - this prevents interference with new modules
                 return array();
-            } else if (empty($modules)) {
-                error_log('License Manager: Still no modules after recreation - major system issue');
-                return array();
-            } else {
-                error_log('License Manager: Successfully recovered ' . count($modules) . ' modules');
             }
         }
         

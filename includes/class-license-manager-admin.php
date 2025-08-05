@@ -896,11 +896,25 @@ class License_Manager_Admin {
                 echo 'Varsayılan modüller oluşturuldu: ' . (get_option('license_manager_defaults_created', false) ? 'Evet' : 'Hayır') . '<br>';
                 echo 'Taxonomy kayıtlı: ' . (taxonomy_exists('lm_modules') ? 'Evet' : 'Hayır') . '<br>';
                 
+                // Client-side module debug
+                echo '<br><strong>Client-side Modül Bilgileri:</strong><br>';
+                $client_modules = get_option('insurance_crm_license_modules', array());
+                echo 'Client tarafında lisanslı modüller: ' . (is_array($client_modules) ? implode(', ', $client_modules) : 'Yok') . '<br>';
+                echo 'Client lisans durumu: ' . get_option('insurance_crm_license_status', 'inactive') . '<br>';
+                echo 'Client lisans anahtarı: ' . (get_option('insurance_crm_license_key', '') ? 'Mevcut' : 'Yok') . '<br>';
+                
                 // Run comprehensive test
                 if (isset($_GET['full_test'])) {
                     echo '<br><strong>Kapsamlı Test Sonuçları:</strong><br>';
                     $test_results = $modules_manager->test_module_system();
                     foreach ($test_results as $result) {
+                        echo htmlspecialchars($result) . '<br>';
+                    }
+                    
+                    // Client-side test
+                    echo '<br><strong>Client-side Test Sonuçları:</strong><br>';
+                    $client_test_results = $this->test_client_side_modules();
+                    foreach ($client_test_results as $result) {
                         echo htmlspecialchars($result) . '<br>';
                     }
                     echo '<br>';
@@ -3973,5 +3987,64 @@ class License_Manager_Admin {
             wp_redirect(admin_url('admin.php?page=license-manager-payments&message=reminder_error'));
         }
         exit;
+    }
+    
+    /**
+     * Test client-side module functionality
+     * 
+     * @return array Test results
+     */
+    public function test_client_side_modules() {
+        $results = array();
+        
+        $results[] = "=== Client-side Module Test ===";
+        
+        // Test 1: Client-side license manager availability
+        $client_license_manager_file = ABSPATH . 'wp-content/plugins/insurance-crm/includes/class-license-manager.php';
+        $results[] = "1. Client License Manager File";
+        $results[] = "   File exists: " . (file_exists($client_license_manager_file) ? 'YES' : 'NO');
+        
+        // Test 2: License options
+        $results[] = "2. Client License Options";
+        $license_key = get_option('insurance_crm_license_key', '');
+        $license_status = get_option('insurance_crm_license_status', 'inactive');
+        $license_modules = get_option('insurance_crm_license_modules', array());
+        
+        $results[] = "   License key: " . ($license_key ? 'Present (' . substr($license_key, 0, 10) . '...)' : 'Not set');
+        $results[] = "   License status: " . $license_status;
+        $results[] = "   Licensed modules: " . (is_array($license_modules) ? implode(', ', $license_modules) : 'Invalid format');
+        
+        // Test 3: Available modules vs licensed modules
+        $modules_manager = new License_Manager_Modules();
+        $available_modules = $modules_manager->get_modules();
+        $results[] = "3. Module Comparison";
+        $results[] = "   Server available modules: " . count($available_modules);
+        $results[] = "   Client licensed modules: " . (is_array($license_modules) ? count($license_modules) : 0);
+        
+        if (is_array($license_modules) && !empty($available_modules)) {
+            $available_slugs = array_map(function($module) { return $module->slug; }, $available_modules);
+            $missing_on_server = array_diff($license_modules, $available_slugs);
+            $results[] = "   Modules licensed but not on server: " . (empty($missing_on_server) ? 'None' : implode(', ', $missing_on_server));
+        }
+        
+        // Test 4: Module mapping cache
+        $results[] = "4. Module Cache Status";
+        $mapping_cache = get_transient('insurance_crm_module_mappings');
+        $results[] = "   Module mappings cache: " . ($mapping_cache ? 'Present (' . count($mapping_cache) . ' mappings)' : 'Empty');
+        
+        // Test 5: API availability (if client-side license manager is available)
+        global $insurance_crm_license_manager;
+        $results[] = "5. Client License Manager Instance";
+        $results[] = "   Global instance: " . ($insurance_crm_license_manager ? 'Available' : 'Not available');
+        
+        if ($insurance_crm_license_manager && method_exists($insurance_crm_license_manager, 'get_licensed_modules')) {
+            $client_licensed_modules = $insurance_crm_license_manager->get_licensed_modules();
+            $results[] = "   Client get_licensed_modules(): " . count($client_licensed_modules) . " modules";
+            foreach ($client_licensed_modules as $module) {
+                $results[] = "   - " . $module['name'] . " (" . $module['slug'] . ")";
+            }
+        }
+        
+        return $results;
     }
 }
