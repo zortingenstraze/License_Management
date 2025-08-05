@@ -994,7 +994,7 @@ class License_Manager_Admin {
                         </th>
                         <td>
                             <input type="text" id="slug" name="slug" class="regular-text" required />
-                            <p class="description"><?php _e('Modülün benzersiz tanımlayıcısı (örn: sales-opportunities)', 'license-manager'); ?></p>
+                            <p class="description"><?php _e('Modülün benzersiz tanımlayıcısı (örn: sale_opportunities)', 'license-manager'); ?></p>
                         </td>
                     </tr>
                     <tr>
@@ -1003,7 +1003,7 @@ class License_Manager_Admin {
                         </th>
                         <td>
                             <input type="text" id="view_parameter" name="view_parameter" class="regular-text" />
-                            <p class="description"><?php _e('URL\'de kullanılacak view parametresi (örn: sales-opportunities → ?view=sales-opportunities)', 'license-manager'); ?></p>
+                            <p class="description"><?php _e('URL\'de kullanılacak view parametresi (örn: sale_opportunities → ?view=sale_opportunities)', 'license-manager'); ?></p>
                         </td>
                     </tr>
                     <tr>
@@ -1086,7 +1086,7 @@ class License_Manager_Admin {
                         </th>
                         <td>
                             <input type="text" id="view_parameter" name="view_parameter" class="regular-text" value="<?php echo esc_attr($module->view_parameter); ?>" />
-                            <p class="description"><?php _e('URL\'de kullanılacak view parametresi (örn: sales-opportunities → ?view=sales-opportunities)', 'license-manager'); ?></p>
+                            <p class="description"><?php _e('URL\'de kullanılacak view parametresi (örn: sale_opportunities → ?view=sale_opportunities)', 'license-manager'); ?></p>
                         </td>
                     </tr>
                     <tr>

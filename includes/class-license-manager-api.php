@@ -833,6 +833,20 @@ class License_Manager_API {
             error_log("BALKAy License API: Using default modules: " . implode(', ', $module_slugs));
         }
         
+        // Handle backward compatibility for module name changes
+        $module_compatibility_map = array(
+            'sales-opportunities' => 'sale_opportunities',
+            'sales_opportunities' => 'sale_opportunities',
+            'data-transfer' => 'data_transfer'
+        );
+        
+        foreach ($module_slugs as $key => $module_slug) {
+            if (isset($module_compatibility_map[$module_slug])) {
+                $module_slugs[$key] = $module_compatibility_map[$module_slug];
+                error_log("BALKAy License API: Converted module '$module_slug' to '" . $module_compatibility_map[$module_slug] . "'");
+            }
+        }
+        
         error_log("BALKAy License API: Final modules for license " . $license_key . ": " . implode(', ', $module_slugs));
         
         return array(
