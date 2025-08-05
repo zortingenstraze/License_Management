@@ -898,47 +898,111 @@ class Insurance_CRM_License_Manager {
         // Get module slugs from license
         $module_slugs = get_option('insurance_crm_license_modules', array());
         
+        error_log('License Manager: Raw licensed modules option: ' . print_r($module_slugs, true));
+        
         if (empty($module_slugs) || !is_array($module_slugs)) {
-            error_log('License Manager: No licensed module slugs found');
-            return array();
+            error_log('License Manager: No licensed module slugs found or invalid format');
+            
+            // Try to refresh license data to get latest modules
+            if ($this->license_api) {
+                error_log('License Manager: Attempting to refresh license data to get modules');
+                $license_key = get_option('insurance_crm_license_key', '');
+                if (!empty($license_key)) {
+                    $validation_result = $this->license_api->validate_license($license_key);
+                    if (isset($validation_result['modules']) && is_array($validation_result['modules'])) {
+                        $module_slugs = $validation_result['modules'];
+                        update_option('insurance_crm_license_modules', $module_slugs);
+                        error_log('License Manager: Retrieved modules from license validation: ' . implode(', ', $module_slugs));
+                    }
+                }
+            }
+            
+            // If still no modules, return empty array
+            if (empty($module_slugs) || !is_array($module_slugs)) {
+                error_log('License Manager: Still no licensed modules after refresh attempt');
+                return array();
+            }
         }
         
         error_log('License Manager: Licensed module slugs: ' . implode(', ', $module_slugs));
         
-        // Get module mappings (view parameters)
+        // Get module mappings (view parameters) with retry logic
         $module_mappings = $this->get_module_view_mappings();
         
-        // Get available modules from server for detailed information
+        // Get available modules from server for detailed information with error handling
         $available_modules = array();
         if ($this->license_api) {
+            error_log('License Manager: Fetching detailed module information from server');
             $modules_response = $this->license_api->get_modules();
-            if (isset($modules_response['modules']) && is_array($modules_response['modules'])) {
+            
+            if (isset($modules_response['error'])) {
+                error_log('License Manager: Server API error for modules: ' . $modules_response['error']);
+            } else if (isset($modules_response['modules']) && is_array($modules_response['modules'])) {
                 foreach ($modules_response['modules'] as $module) {
                     if (isset($module['slug'])) {
                         $available_modules[$module['slug']] = $module;
+                        error_log('License Manager: Server module available: ' . $module['slug'] . ' (' . ($module['name'] ?? 'Unknown') . ')');
                     }
                 }
+                error_log('License Manager: Retrieved ' . count($available_modules) . ' modules from server');
+            } else {
+                error_log('License Manager: Invalid or empty modules response from server: ' . print_r($modules_response, true));
             }
+        } else {
+            error_log('License Manager: No license API instance available for fetching module details');
         }
         
-        // Build licensed modules with details
+        // Build licensed modules with details and fallback data
         $licensed_modules = array();
         foreach ($module_slugs as $slug) {
+            // Enhanced default module names
+            $default_names = array(
+                'dashboard' => 'Dashboard',
+                'customers' => 'Müşteri Yönetimi',
+                'policies' => 'Poliçe Yönetimi',
+                'quotes' => 'Teklif Yönetimi',
+                'tasks' => 'Görev Yönetimi',
+                'reports' => 'Raporlar',
+                'data_transfer' => 'Veri Aktarımı',
+                'sale_opportunities' => 'Satış Fırsatları',
+                'sales_opportunities' => 'Satış Fırsatları',
+                'accounting' => 'Muhasebe',
+                'hr' => 'İnsan Kaynakları'
+            );
+            
+            $default_descriptions = array(
+                'dashboard' => 'Ana kontrol paneli ve genel bakış',
+                'customers' => 'Müşteri bilgilerini yönetme ve takip etme',
+                'policies' => 'Sigorta poliçelerini yönetme',
+                'quotes' => 'Sigorta tekliflerini hazırlama ve yönetme',
+                'tasks' => 'Görevleri takip etme ve yönetme',
+                'reports' => 'Detaylı raporlar ve analizler',
+                'data_transfer' => 'Veri içe/dışa aktarım işlemleri',
+                'sale_opportunities' => 'Satış fırsatlarını takip ve yönetme',
+                'sales_opportunities' => 'Satış fırsatlarını takip ve yönetme',
+                'accounting' => 'Muhasebe işlemleri ve mali raporlar',
+                'hr' => 'İnsan kaynakları yönetimi'
+            );
+            
             $module_info = array(
                 'slug' => $slug,
-                'name' => ucfirst(str_replace(array('-', '_'), ' ', $slug)), // Default name
+                'name' => isset($default_names[$slug]) ? $default_names[$slug] : ucfirst(str_replace(array('-', '_'), ' ', $slug)),
                 'view_parameter' => isset($module_mappings[$slug]) ? $module_mappings[$slug] : $slug,
-                'description' => '',
-                'category' => 'general'
+                'description' => isset($default_descriptions[$slug]) ? $default_descriptions[$slug] : '',
+                'category' => 'general',
+                'status' => 'active'
             );
             
             // Enhance with server data if available
             if (isset($available_modules[$slug])) {
                 $server_module = $available_modules[$slug];
                 $module_info['name'] = $server_module['name'] ?? $module_info['name'];
-                $module_info['description'] = $server_module['description'] ?? '';
+                $module_info['description'] = $server_module['description'] ?? $module_info['description'];
                 $module_info['category'] = $server_module['category'] ?? 'general';
                 $module_info['id'] = $server_module['id'] ?? null;
+                error_log('License Manager: Enhanced module with server data: ' . $slug);
+            } else {
+                error_log('License Manager: Using fallback data for module: ' . $slug);
             }
             
             $licensed_modules[] = $module_info;

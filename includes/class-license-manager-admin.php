@@ -861,6 +861,12 @@ class License_Manager_Admin {
                     case 'module_deleted':
                         echo '<div class="notice notice-success is-dismissible"><p>' . __('Modül başarıyla silindi.', 'license-manager') . '</p></div>';
                         break;
+                    case 'modules_fixed':
+                        echo '<div class="notice notice-success is-dismissible"><p>' . __('Modül sorunları düzeltildi ve cache temizlendi.', 'license-manager') . '</p></div>';
+                        break;
+                    case 'modules_rebuilt':
+                        echo '<div class="notice notice-success is-dismissible"><p>' . __('Modül sistemi tamamen yeniden oluşturuldu.', 'license-manager') . '</p></div>';
+                        break;
                 }
             }
             
@@ -889,7 +895,20 @@ class License_Manager_Admin {
                 echo 'Toplam modül sayısı: ' . count($modules_manager->get_modules()) . '<br>';
                 echo 'Varsayılan modüller oluşturuldu: ' . (get_option('license_manager_defaults_created', false) ? 'Evet' : 'Hayır') . '<br>';
                 echo 'Taxonomy kayıtlı: ' . (taxonomy_exists('lm_modules') ? 'Evet' : 'Hayır') . '<br>';
-                echo '<a href="' . admin_url('admin.php?page=license-manager&debug_modules=1') . '" class="button">Modül Sorunlarını Düzelt</a>';
+                
+                // Run comprehensive test
+                if (isset($_GET['full_test'])) {
+                    echo '<br><strong>Kapsamlı Test Sonuçları:</strong><br>';
+                    $test_results = $modules_manager->test_module_system();
+                    foreach ($test_results as $result) {
+                        echo htmlspecialchars($result) . '<br>';
+                    }
+                    echo '<br>';
+                }
+                
+                echo '<a href="' . add_query_arg(array('debug' => '1', 'full_test' => '1')) . '" class="button">Kapsamlı Test Çalıştır</a> ';
+                echo '<a href="' . admin_url('admin-post.php?action=license_manager_fix_modules') . '" class="button button-primary">Modül Sorunlarını Düzelt</a> ';
+                echo '<a href="' . admin_url('admin-post.php?action=license_manager_rebuild_modules') . '" class="button button-secondary" onclick="return confirm(\'Bu işlem tüm modül sistemini yeniden oluşturacak. Emin misiniz?\')">Sistemi Yeniden Oluştur</a>';
                 echo '</p></div>';
             } elseif (current_user_can('manage_options')) {
                 echo '<div class="notice notice-info"><p>';

@@ -28,6 +28,7 @@ class License_Manager_Modules {
         add_action('admin_post_license_manager_delete_module', array($this, 'handle_delete_module'));
         add_action('admin_post_license_manager_debug_modules', array($this, 'handle_debug_modules'));
         add_action('admin_post_license_manager_fix_modules', array($this, 'handle_fix_modules'));
+        add_action('admin_post_license_manager_rebuild_modules', array($this, 'handle_rebuild_modules'));
     }
     
     /**
@@ -374,6 +375,113 @@ class License_Manager_Modules {
         wp_redirect(add_query_arg(array(
             'page' => 'license-manager-modules',
             'message' => 'modules_fixed'
+        ), admin_url('admin.php')));
+        exit;
+    }
+    
+    /**
+     * Comprehensive module system test
+     */
+    public function test_module_system() {
+        $results = array();
+        
+        // Test 1: Taxonomy registration
+        $results[] = "=== Module System Test Results ===";
+        $results[] = "1. Taxonomy Check";
+        $results[] = "   lm_modules exists: " . (taxonomy_exists('lm_modules') ? 'YES' : 'NO');
+        
+        // Test 2: Direct term retrieval
+        $results[] = "2. Direct Term Retrieval";
+        $terms = get_terms(array('taxonomy' => 'lm_modules', 'hide_empty' => false));
+        if (is_wp_error($terms)) {
+            $results[] = "   ERROR: " . $terms->get_error_message();
+        } else {
+            $results[] = "   Found " . count($terms) . " terms directly";
+            foreach ($terms as $term) {
+                $results[] = "   - " . $term->name . " (ID: " . $term->term_id . ", slug: " . $term->slug . ")";
+            }
+        }
+        
+        // Test 3: Database class method
+        $results[] = "3. Database Class Method";
+        $db_modules = $this->database->get_available_modules();
+        $results[] = "   Database class returned " . count($db_modules) . " modules";
+        foreach ($db_modules as $module) {
+            $view_param = isset($module->view_parameter) ? $module->view_parameter : 'none';
+            $results[] = "   - " . $module->name . " (view: " . $view_param . ")";
+        }
+        
+        // Test 4: Modules manager method
+        $results[] = "4. Modules Manager Method";
+        $manager_modules = $this->get_modules();
+        $results[] = "   Manager returned " . count($manager_modules) . " modules";
+        
+        // Test 5: Options check
+        $results[] = "5. Options Check";
+        $results[] = "   license_manager_defaults_created: " . (get_option('license_manager_defaults_created', false) ? 'YES' : 'NO');
+        
+        // Test 6: Cache status
+        $results[] = "6. Cache Status";
+        $results[] = "   WP Object Cache: " . (wp_using_ext_object_cache() ? 'External' : 'Built-in');
+        
+        return $results;
+    }
+    
+    /**
+     * Force complete module system rebuild
+     */
+    public function rebuild_module_system() {
+        error_log('License Manager: Starting complete module system rebuild');
+        
+        // Step 1: Clear all caches aggressively
+        wp_cache_flush();
+        clean_taxonomy_cache('lm_modules');
+        delete_transient('insurance_crm_module_mappings');
+        
+        // Clear specific module caches
+        wp_cache_delete('lm_modules', 'terms');
+        wp_cache_delete('license_manager_modules', 'terms');
+        wp_cache_delete('all_ids', 'lm_modules');
+        wp_cache_delete('get', 'lm_modules');
+        wp_cache_flush_group('terms');
+        
+        // Step 2: Force re-register taxonomy
+        $this->database->register_modules_taxonomy();
+        flush_rewrite_rules(false);
+        
+        // Step 3: Reset defaults flag
+        delete_option('license_manager_defaults_created');
+        
+        // Step 4: Force recreate all default modules
+        $this->database->force_create_default_modules();
+        
+        // Step 5: Update flag
+        update_option('license_manager_defaults_created', true);
+        
+        // Step 6: Final cache clear
+        wp_cache_flush();
+        
+        error_log('License Manager: Module system rebuild completed');
+        
+        return true;
+    }
+    
+    /**
+     * Handle rebuild modules request
+     */
+    public function handle_rebuild_modules() {
+        // Check permissions
+        if (!current_user_can('manage_license_manager')) {
+            wp_die(__('You do not have sufficient permissions to access this page.'));
+        }
+        
+        // Perform rebuild
+        $this->rebuild_module_system();
+        
+        // Success
+        wp_redirect(add_query_arg(array(
+            'page' => 'license-manager-modules',
+            'message' => 'modules_rebuilt'
         ), admin_url('admin.php')));
         exit;
     }
