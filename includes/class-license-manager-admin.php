@@ -110,6 +110,16 @@ class License_Manager_Admin {
             array($this, 'display_payments')
         );
         
+        // Modules submenu
+        add_submenu_page(
+            'license-manager',
+            __('Modül Yönetimi', 'license-manager'),
+            __('Modüller', 'license-manager'),
+            'manage_license_manager',
+            'license-manager-modules',
+            array($this, 'display_modules')
+        );
+        
         // Add New Customer submenu (hidden)
         add_submenu_page(
             null, // Hidden from menu
@@ -188,6 +198,26 @@ class License_Manager_Admin {
             'manage_license_manager',
             'license-manager-edit-payment',
             array($this, 'display_edit_payment')
+        );
+        
+        // Add Module submenu (hidden)
+        add_submenu_page(
+            null, // Hidden from menu
+            __('Yeni Modül Ekle', 'license-manager'),
+            __('Yeni Modül Ekle', 'license-manager'),
+            'manage_license_manager',
+            'license-manager-add-module',
+            array($this, 'display_add_module')
+        );
+        
+        // Edit Module submenu (hidden)
+        add_submenu_page(
+            null, // Hidden from menu
+            __('Modül Düzenle', 'license-manager'),
+            __('Modül Düzenle', 'license-manager'),
+            'manage_license_manager',
+            'license-manager-edit-module',
+            array($this, 'display_edit_module')
         );
         
         // Settings submenu
@@ -791,6 +821,285 @@ class License_Manager_Admin {
             });
         });
         </script>
+        <?php
+    }
+    
+    /**
+     * Display modules management page
+     */
+    public function display_modules() {
+        $modules_manager = new License_Manager_Modules();
+        
+        // Handle actions
+        $action = isset($_GET['action']) ? sanitize_text_field($_GET['action']) : '';
+        
+        if ($action === 'add') {
+            $this->display_add_module();
+            return;
+        } elseif ($action === 'edit' && isset($_GET['id'])) {
+            $this->display_edit_module();
+            return;
+        }
+        
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Modül Yönetimi', 'license-manager'); ?>
+            <a href="<?php echo admin_url('admin.php?page=license-manager-modules&action=add'); ?>" class="page-title-action"><?php _e('Yeni Modül Ekle', 'license-manager'); ?></a>
+            </h1>
+            
+            <?php
+            // Display messages
+            if (isset($_GET['message'])) {
+                $message_type = sanitize_text_field($_GET['message']);
+                switch ($message_type) {
+                    case 'module_added':
+                        echo '<div class="notice notice-success is-dismissible"><p>' . __('Modül başarıyla eklendi.', 'license-manager') . '</p></div>';
+                        break;
+                    case 'module_updated':
+                        echo '<div class="notice notice-success is-dismissible"><p>' . __('Modül başarıyla güncellendi.', 'license-manager') . '</p></div>';
+                        break;
+                    case 'module_deleted':
+                        echo '<div class="notice notice-success is-dismissible"><p>' . __('Modül başarıyla silindi.', 'license-manager') . '</p></div>';
+                        break;
+                }
+            }
+            
+            if (isset($_GET['error'])) {
+                $error_type = sanitize_text_field($_GET['error']);
+                switch ($error_type) {
+                    case 'missing_fields':
+                        echo '<div class="notice notice-error is-dismissible"><p>' . __('Lütfen gerekli alanları doldurun.', 'license-manager') . '</p></div>';
+                        break;
+                    case 'invalid_view_parameter':
+                        echo '<div class="notice notice-error is-dismissible"><p>' . __('View parametresi geçersiz. Sadece harfler, rakamlar ve tire kullanın.', 'license-manager') . '</p></div>';
+                        break;
+                    case 'module_exists':
+                        echo '<div class="notice notice-error is-dismissible"><p>' . __('Bu modül zaten mevcut.', 'license-manager') . '</p></div>';
+                        break;
+                    case 'module_not_found':
+                        echo '<div class="notice notice-error is-dismissible"><p>' . __('Modül bulunamadı.', 'license-manager') . '</p></div>';
+                        break;
+                }
+            }
+            ?>
+            
+            <div class="modules-list">
+                <?php $this->display_modules_table($modules_manager); ?>
+            </div>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Display modules table
+     */
+    private function display_modules_table($modules_manager) {
+        $modules = $modules_manager->get_modules();
+        $categories = $modules_manager->get_module_categories();
+        
+        ?>
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th scope="col"><?php _e('Modül Adı', 'license-manager'); ?></th>
+                    <th scope="col"><?php _e('Slug', 'license-manager'); ?></th>
+                    <th scope="col"><?php _e('View Parametresi', 'license-manager'); ?></th>
+                    <th scope="col"><?php _e('Kategori', 'license-manager'); ?></th>
+                    <th scope="col"><?php _e('Açıklama', 'license-manager'); ?></th>
+                    <th scope="col"><?php _e('İşlemler', 'license-manager'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty($modules)) : ?>
+                    <?php foreach ($modules as $module) : ?>
+                        <tr>
+                            <td><strong><?php echo esc_html($module->name); ?></strong></td>
+                            <td><code><?php echo esc_html($module->slug); ?></code></td>
+                            <td>
+                                <?php if (!empty($module->view_parameter)) : ?>
+                                    <code>?view=<?php echo esc_html($module->view_parameter); ?></code>
+                                <?php else : ?>
+                                    <span class="description"><?php _e('Yok', 'license-manager'); ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php 
+                                $category_name = isset($categories[$module->category]) ? $categories[$module->category] : $module->category;
+                                echo esc_html($category_name);
+                                ?>
+                            </td>
+                            <td><?php echo esc_html($module->description); ?></td>
+                            <td>
+                                <a href="<?php echo admin_url('admin.php?page=license-manager-modules&action=edit&id=' . $module->term_id); ?>" class="button button-small"><?php _e('Düzenle', 'license-manager'); ?></a>
+                                <a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=license_manager_delete_module&id=' . $module->term_id), 'license_manager_delete_module_' . $module->term_id); ?>" class="button button-small button-link-delete" onclick="return confirm('<?php _e('Bu modülü silmek istediğinizden emin misiniz?', 'license-manager'); ?>')"><?php _e('Sil', 'license-manager'); ?></a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else : ?>
+                    <tr>
+                        <td colspan="6"><?php _e('Henüz modül bulunmamaktadır.', 'license-manager'); ?></td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+    
+    /**
+     * Display add module page
+     */
+    public function display_add_module() {
+        $modules_manager = new License_Manager_Modules();
+        $categories = $modules_manager->get_module_categories();
+        
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Yeni Modül Ekle', 'license-manager'); ?>
+            <a href="<?php echo admin_url('admin.php?page=license-manager-modules'); ?>" class="page-title-action"><?php _e('Modüllere Dön', 'license-manager'); ?></a>
+            </h1>
+            
+            <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+                <input type="hidden" name="action" value="license_manager_add_module" />
+                <?php wp_nonce_field('license_manager_add_module'); ?>
+                
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
+                            <label for="name"><?php _e('Modül Adı', 'license-manager'); ?> <span class="required">*</span></label>
+                        </th>
+                        <td>
+                            <input type="text" id="name" name="name" class="regular-text" required />
+                            <p class="description"><?php _e('Modülün görüntülenecek adı', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="slug"><?php _e('Slug', 'license-manager'); ?> <span class="required">*</span></label>
+                        </th>
+                        <td>
+                            <input type="text" id="slug" name="slug" class="regular-text" required />
+                            <p class="description"><?php _e('Modülün benzersiz tanımlayıcısı (örn: sales-opportunities)', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="view_parameter"><?php _e('View Parametresi', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <input type="text" id="view_parameter" name="view_parameter" class="regular-text" />
+                            <p class="description"><?php _e('URL\'de kullanılacak view parametresi (örn: sales-opportunities → ?view=sales-opportunities)', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="category"><?php _e('Kategori', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <select id="category" name="category">
+                                <option value=""><?php _e('Kategori Seçin', 'license-manager'); ?></option>
+                                <?php foreach ($categories as $slug => $name) : ?>
+                                    <option value="<?php echo esc_attr($slug); ?>"><?php echo esc_html($name); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="description"><?php _e('Açıklama', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <textarea id="description" name="description" rows="3" class="large-text"></textarea>
+                            <p class="description"><?php _e('Modülün açıklaması', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+                
+                <?php submit_button(__('Modül Ekle', 'license-manager')); ?>
+            </form>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Display edit module page
+     */
+    public function display_edit_module() {
+        $modules_manager = new License_Manager_Modules();
+        $term_id = intval($_GET['id']);
+        $module = $modules_manager->get_module($term_id);
+        
+        if (!$module) {
+            wp_die(__('Modül bulunamadı.', 'license-manager'));
+        }
+        
+        $categories = $modules_manager->get_module_categories();
+        
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Modül Düzenle', 'license-manager'); ?>
+            <a href="<?php echo admin_url('admin.php?page=license-manager-modules'); ?>" class="page-title-action"><?php _e('Modüllere Dön', 'license-manager'); ?></a>
+            </h1>
+            
+            <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+                <input type="hidden" name="action" value="license_manager_edit_module" />
+                <input type="hidden" name="term_id" value="<?php echo esc_attr($term_id); ?>" />
+                <?php wp_nonce_field('license_manager_edit_module'); ?>
+                
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
+                            <label for="name"><?php _e('Modül Adı', 'license-manager'); ?> <span class="required">*</span></label>
+                        </th>
+                        <td>
+                            <input type="text" id="name" name="name" class="regular-text" value="<?php echo esc_attr($module->name); ?>" required />
+                            <p class="description"><?php _e('Modülün görüntülenecek adı', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="slug"><?php _e('Slug', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <input type="text" id="slug" name="slug" class="regular-text" value="<?php echo esc_attr($module->slug); ?>" readonly />
+                            <p class="description"><?php _e('Slug değiştirilemez.', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="view_parameter"><?php _e('View Parametresi', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <input type="text" id="view_parameter" name="view_parameter" class="regular-text" value="<?php echo esc_attr($module->view_parameter); ?>" />
+                            <p class="description"><?php _e('URL\'de kullanılacak view parametresi (örn: sales-opportunities → ?view=sales-opportunities)', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="category"><?php _e('Kategori', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <select id="category" name="category">
+                                <option value=""><?php _e('Kategori Seçin', 'license-manager'); ?></option>
+                                <?php foreach ($categories as $slug => $name) : ?>
+                                    <option value="<?php echo esc_attr($slug); ?>" <?php selected($module->category, $slug); ?>><?php echo esc_html($name); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="description"><?php _e('Açıklama', 'license-manager'); ?></label>
+                        </th>
+                        <td>
+                            <textarea id="description" name="description" rows="3" class="large-text"><?php echo esc_textarea($module->description); ?></textarea>
+                            <p class="description"><?php _e('Modülün açıklaması', 'license-manager'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+                
+                <?php submit_button(__('Modül Güncelle', 'license-manager')); ?>
+            </form>
+        </div>
         <?php
     }
     

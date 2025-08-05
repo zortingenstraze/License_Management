@@ -475,4 +475,52 @@ class Insurance_CRM_License_API {
         
         return $results;
     }
+    
+    /**
+     * Get available modules from license server
+     * 
+     * @return array Modules data
+     */
+    public function get_modules() {
+        $url = rtrim($this->license_server_url, '/') . '/wp-json/balkay-license/v1/modules';
+        
+        if ($this->debug_mode) {
+            error_log('License API: Getting modules from: ' . $url);
+        }
+        
+        $args = array(
+            'method' => 'GET',
+            'timeout' => $this->timeout,
+            'headers' => array(
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'Insurance-CRM-License-Client/1.0'
+            ),
+            'sslverify' => false // For development/testing
+        );
+        
+        $response = wp_remote_request($url, $args);
+        
+        if (is_wp_error($response)) {
+            if ($this->debug_mode) {
+                error_log('License API: Modules request failed: ' . $response->get_error_message());
+            }
+            return array('modules' => array());
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (!is_array($data)) {
+            if ($this->debug_mode) {
+                error_log('License API: Invalid modules response: ' . $body);
+            }
+            return array('modules' => array());
+        }
+        
+        if ($this->debug_mode) {
+            error_log('License API: Modules response: ' . $body);
+        }
+        
+        return $data;
+    }
 }

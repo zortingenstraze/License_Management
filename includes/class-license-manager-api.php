@@ -172,8 +172,17 @@ class License_Manager_API {
         
         error_log("BALKAy License API: /test registration result: " . ($test_result ? 'SUCCESS' : 'FAILED'));
         
+        // Modules endpoint
+        $modules_result = register_rest_route($this->namespace, '/modules', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_modules'),
+            'permission_callback' => '__return_true', // Allow public access for client-side checking
+        ));
+        
+        error_log("BALKAy License API: /modules registration result: " . ($modules_result ? 'SUCCESS' : 'FAILED'));
+        
         // Log if all routes registered successfully
-        if ($validate_license_result && $validate_result && $license_info_result && $check_status_result && $test_result) {
+        if ($validate_license_result && $validate_result && $license_info_result && $check_status_result && $test_result && $modules_result) {
             error_log("BALKAy License API: All REST routes registered successfully for namespace: " . $this->namespace);
         } else {
             error_log("BALKAy License API: Some routes failed to register for namespace: " . $this->namespace);
@@ -198,7 +207,10 @@ class License_Manager_API {
             $expected_routes = array(
                 '/' . $this->namespace . '/validate_license',
                 '/' . $this->namespace . '/validate',
-                '/' . $this->namespace . '/test'
+                '/' . $this->namespace . '/license_info',
+                '/' . $this->namespace . '/check_status',
+                '/' . $this->namespace . '/test',
+                '/' . $this->namespace . '/modules'
             );
             
             foreach ($expected_routes as $route) {
@@ -1245,5 +1257,29 @@ class License_Manager_API {
             'message' => $this->get_status_message($status)
         ));
         exit;
+    }
+    
+    /**
+     * Get modules endpoint
+     */
+    public function get_modules($request) {
+        $database = new License_Manager_Database();
+        $modules = $database->get_available_modules();
+        
+        $response_data = array();
+        foreach ($modules as $module) {
+            $response_data[] = array(
+                'id' => $module->term_id,
+                'name' => $module->name,
+                'slug' => $module->slug,
+                'view_parameter' => $module->view_parameter,
+                'description' => $module->description,
+                'category' => $module->category
+            );
+        }
+        
+        return new WP_REST_Response(array(
+            'modules' => $response_data
+        ), 200);
     }
 }

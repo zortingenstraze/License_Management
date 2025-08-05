@@ -76,6 +76,7 @@ class License_Manager_Plugin {
      */
     private function load_dependencies() {
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-database.php';
+        require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-modules.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-admin.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-api.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-customer.php';
@@ -160,6 +161,9 @@ class License_Manager_Plugin {
     public function init_plugin() {
         // Initialize database
         $database = new License_Manager_Database();
+        
+        // Initialize modules manager
+        new License_Manager_Modules();
         
         // Initialize admin interface
         if (is_admin()) {

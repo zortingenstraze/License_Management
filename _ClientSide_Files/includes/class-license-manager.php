@@ -651,7 +651,7 @@ class Insurance_CRM_License_Manager {
     /**
      * Check if module is allowed by license
      * 
-     * @param string $module Module name
+     * @param string $module Module name or view parameter
      * @return bool True if module is allowed
      */
     public function is_module_allowed($module) {
@@ -672,7 +672,71 @@ class Insurance_CRM_License_Manager {
             return true;
         }
 
-        return in_array($module, $allowed_modules);
+        // Check direct module slug match
+        if (in_array($module, $allowed_modules)) {
+            return true;
+        }
+        
+        // Check view parameter match by querying server modules
+        return $this->is_view_parameter_allowed($module);
+    }
+    
+    /**
+     * Check if view parameter is allowed
+     * 
+     * @param string $view_parameter View parameter to check
+     * @return bool True if allowed
+     */
+    public function is_view_parameter_allowed($view_parameter) {
+        $allowed_modules = get_option('insurance_crm_license_modules', array());
+        
+        // Get module mappings from server (cached)
+        $module_mappings = $this->get_module_view_mappings();
+        
+        // Check if any allowed module has this view parameter
+        foreach ($allowed_modules as $module_slug) {
+            if (isset($module_mappings[$module_slug]) && 
+                $module_mappings[$module_slug] === $view_parameter) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Get module to view parameter mappings from server
+     * 
+     * @return array Mapping of module slug to view parameter
+     */
+    private function get_module_view_mappings() {
+        // Check cache first (cache for 1 hour)
+        $cache_key = 'insurance_crm_module_mappings';
+        $cached_mappings = get_transient($cache_key);
+        
+        if ($cached_mappings !== false) {
+            return $cached_mappings;
+        }
+        
+        // Fetch from server
+        $mappings = array();
+        
+        if ($this->license_api) {
+            $modules_data = $this->license_api->get_modules();
+            
+            if (is_array($modules_data) && isset($modules_data['modules'])) {
+                foreach ($modules_data['modules'] as $module) {
+                    if (!empty($module['slug']) && !empty($module['view_parameter'])) {
+                        $mappings[$module['slug']] = $module['view_parameter'];
+                    }
+                }
+            }
+        }
+        
+        // Cache the mappings for 1 hour
+        set_transient($cache_key, $mappings, HOUR_IN_SECONDS);
+        
+        return $mappings;
     }
 
     /**
