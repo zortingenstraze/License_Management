@@ -949,35 +949,6 @@ class License_Manager_Database {
     }
     
     /**
-     * Refresh default modules - utility for fixing module issues
-     */
-    public function refresh_default_modules() {
-        error_log('License Manager: Refreshing default modules for troubleshooting');
-        
-        // Clear all caches first
-        wp_cache_flush();
-        clean_taxonomy_cache('lm_modules');
-        delete_transient('insurance_crm_module_mappings');
-        
-        // Clear specific module caches
-        wp_cache_delete('lm_modules', 'terms');
-        wp_cache_delete('license_manager_modules', 'terms');
-        wp_cache_delete('all_ids', 'lm_modules');
-        wp_cache_delete('get', 'lm_modules');
-        
-        // Reset the defaults created flag to force recreation if needed
-        delete_option('license_manager_defaults_created');
-        
-        // Force recreation of default modules
-        $this->force_create_default_modules();
-        
-        // Set the flag back
-        update_option('license_manager_defaults_created', true);
-        
-        error_log('License Manager: Default modules refresh completed');
-    }
-    
-    /**
      * Get module by view parameter
      */
     public function get_module_by_view_parameter($view_parameter) {
