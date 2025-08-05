@@ -527,16 +527,33 @@ class Insurance_CRM_License_API {
             return array('modules' => array(), 'error' => 'Invalid JSON response');
         }
         
+        // Handle both old and new response formats
+        if (isset($data['success']) && $data['success'] && isset($data['modules'])) {
+            // New format with success flag
+            $modules_array = $data['modules'];
+        } elseif (isset($data['modules'])) {
+            // Legacy format
+            $modules_array = $data['modules'];
+        } else {
+            // No modules key found
+            if ($this->debug_mode) {
+                error_log('License API: No modules key found in response');
+            }
+            return array('modules' => array(), 'error' => 'No modules data in response');
+        }
+        
         if ($this->debug_mode) {
-            $module_count = isset($data['modules']) ? count($data['modules']) : 0;
+            $module_count = count($modules_array);
             error_log('License API: Successfully retrieved ' . $module_count . ' modules');
-            if (isset($data['modules'])) {
-                foreach ($data['modules'] as $module) {
-                    error_log('License API: Module - ' . $module['name'] . ' (slug: ' . $module['slug'] . ')');
+            if (is_array($modules_array)) {
+                foreach ($modules_array as $module) {
+                    if (isset($module['name']) && isset($module['slug'])) {
+                        error_log('License API: Module - ' . $module['name'] . ' (slug: ' . $module['slug'] . ')');
+                    }
                 }
             }
         }
         
-        return $data;
+        return array('modules' => $modules_array, 'success' => true);
     }
 }

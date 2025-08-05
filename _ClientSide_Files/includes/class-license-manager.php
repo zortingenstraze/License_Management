@@ -729,6 +729,14 @@ class Insurance_CRM_License_Manager {
      */
     public function refresh_module_mappings() {
         delete_transient('insurance_crm_module_mappings');
+        error_log('License Manager: Manually refreshing module mappings cache');
+        return $this->get_module_view_mappings();
+    }
+    
+    /**
+     * Get current module mappings for debugging
+     */
+    public function get_current_module_mappings() {
         return $this->get_module_view_mappings();
     }
     
@@ -754,25 +762,34 @@ class Insurance_CRM_License_Manager {
             error_log('License Manager: Fetching fresh module mappings from server');
             $modules_data = $this->license_api->get_modules();
             
-            if (is_array($modules_data) && isset($modules_data['modules'])) {
-                error_log('License Manager: Processing ' . count($modules_data['modules']) . ' modules');
-                foreach ($modules_data['modules'] as $module) {
-                    if (!empty($module['slug']) && !empty($module['view_parameter'])) {
-                        $mappings[$module['slug']] = $module['view_parameter'];
-                        error_log('License Manager: Mapped ' . $module['slug'] . ' -> ' . $module['view_parameter']);
+            if (is_array($modules_data)) {
+                // Handle both success response and legacy format
+                $modules_array = isset($modules_data['modules']) ? $modules_data['modules'] : array();
+                
+                if (!empty($modules_array) && is_array($modules_array)) {
+                    error_log('License Manager: Processing ' . count($modules_array) . ' modules');
+                    foreach ($modules_array as $module) {
+                        if (!empty($module['slug']) && !empty($module['view_parameter'])) {
+                            $mappings[$module['slug']] = $module['view_parameter'];
+                            error_log('License Manager: Mapped ' . $module['slug'] . ' -> ' . $module['view_parameter']);
+                        } else {
+                            error_log('License Manager: Skipping module with missing data: ' . print_r($module, true));
+                        }
+                    }
+                } else {
+                    error_log('License Manager: No modules array found in response');
+                    if (isset($modules_data['error'])) {
+                        error_log('License Manager: Modules API error: ' . $modules_data['error']);
                     }
                 }
             } else {
-                error_log('License Manager: Invalid modules data received');
-                if (isset($modules_data['error'])) {
-                    error_log('License Manager: Modules API error: ' . $modules_data['error']);
-                }
+                error_log('License Manager: Invalid modules data received (not array)');
             }
         } else {
             error_log('License Manager: No license API instance available');
         }
         
-        // Cache the mappings for 1 hour
+        // Cache the mappings for 1 hour (even if empty to prevent repeated failed requests)
         set_transient($cache_key, $mappings, HOUR_IN_SECONDS);
         error_log('License Manager: Cached ' . count($mappings) . ' module mappings');
         
