@@ -690,7 +690,7 @@ class License_Manager_Database {
             return array();
         }
         
-        // Simplified logic: Only create defaults if truly no modules exist and none created before
+        // Fix: Always retry getting modules if empty, regardless of defaults flag
         if (empty($modules)) {
             $defaults_created = get_option('license_manager_defaults_created', false);
             
@@ -698,26 +698,29 @@ class License_Manager_Database {
                 error_log('License Manager: No modules found and defaults not created yet, creating defaults');
                 $this->force_create_default_modules();
                 update_option('license_manager_defaults_created', true);
-                
-                // Clear caches and retry once
-                wp_cache_flush();
-                clean_taxonomy_cache('lm_modules');
-                
-                $modules = get_terms(array(
-                    'taxonomy' => 'lm_modules',
-                    'hide_empty' => false,
-                    'cache_domain' => 'license_manager_modules_initial_' . time(),
-                    'update_term_meta_cache' => true
-                ));
-                
-                if (is_wp_error($modules)) {
-                    error_log('License Manager: Error getting modules after initial creation: ' . $modules->get_error_message());
-                    return array();
-                }
             } else {
-                error_log('License Manager: No modules found but defaults already created - returning empty array to prevent interference');
-                // Don't recreate if defaults were already created - this prevents interference with new modules
+                error_log('License Manager: No modules found but defaults were created before - this may be a cache issue, retrying');
+            }
+            
+            // Always clear caches and retry getting modules when empty
+            wp_cache_flush();
+            clean_taxonomy_cache('lm_modules');
+            
+            // Final attempt to get modules with fresh cache
+            $modules = get_terms(array(
+                'taxonomy' => 'lm_modules',
+                'hide_empty' => false,
+                'cache_domain' => 'license_manager_modules_final_' . time(),
+                'update_term_meta_cache' => true
+            ));
+            
+            if (is_wp_error($modules)) {
+                error_log('License Manager: Error getting modules after final retry: ' . $modules->get_error_message());
                 return array();
+            }
+            
+            if (empty($modules)) {
+                error_log('License Manager: Still no modules after final retry - this indicates a deeper issue');
             }
         }
         

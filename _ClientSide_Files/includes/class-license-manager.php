@@ -76,6 +76,37 @@ class Insurance_CRM_License_Manager {
     public function init() {
         // Check license status if needed
         $this->maybe_check_license_status();
+        
+        // Add user limit enforcement hooks
+        add_action('wp', array($this, 'maybe_enforce_user_limit'));
+        add_action('admin_notices', array($this, 'show_user_limit_warnings'));
+    }
+
+    /**
+     * Maybe enforce user limit on specific pages
+     */
+    public function maybe_enforce_user_limit() {
+        // Only enforce on specific pages that require user limit checking
+        $restricted_views = array('all_personnel', 'personnel', 'users', 'add_personnel');
+        $current_view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : '';
+        
+        if (in_array($current_view, $restricted_views)) {
+            $this->enforce_user_limit();
+        }
+    }
+
+    /**
+     * Show user limit warnings in admin
+     */
+    public function show_user_limit_warnings() {
+        if (is_admin() && current_user_can('manage_options')) {
+            $warning = $this->get_user_limit_warning();
+            if ($warning) {
+                echo '<div class="notice notice-warning is-dismissible">';
+                echo '<p><strong>Lisans Uyarısı:</strong> ' . esc_html($warning) . '</p>';
+                echo '</div>';
+            }
+        }
     }
 
     /**
@@ -242,6 +273,81 @@ class Insurance_CRM_License_Manager {
         $current_users = $this->get_current_user_count();
         
         return $current_users > $user_limit;
+    }
+
+    /**
+     * Enforce user limit with warning and redirect
+     * Should be called on pages that need user limit enforcement
+     * 
+     * @return void Redirects if limit exceeded
+     */
+    public function enforce_user_limit() {
+        if ($this->is_user_limit_exceeded()) {
+            $user_limit = get_option('insurance_crm_license_user_limit', 5);
+            $current_users = $this->get_current_user_count();
+            
+            // Store restriction details for the page
+            set_transient('insurance_crm_restriction_details_' . get_current_user_id(), array(
+                'type' => 'user_limit',
+                'current_users' => $current_users,
+                'max_users' => $user_limit,
+                'message' => sprintf(
+                    'Kullanıcı sayısını aştınız! Mevcut kullanıcı sayısı: %d, Lisansınızın izin verdiği maksimum kullanıcı sayısı: %d. Lütfen kullanıcı sayısını lisansınızın izin verdiği kadar kullanın veya yeni lisans satın alın.',
+                    $current_users,
+                    $user_limit
+                )
+            ), 300); // 5 minutes
+            
+            // Redirect to all_personnel page or license restriction page
+            $redirect_url = add_query_arg(array(
+                'view' => 'license-restriction',
+                'restriction' => 'user_limit',
+                'current_users' => $current_users,
+                'max_users' => $user_limit
+            ), home_url());
+            
+            // If all_personnel page exists, redirect there instead
+            if ($this->page_exists('all_personnel')) {
+                $redirect_url = add_query_arg(array(
+                    'view' => 'all_personnel',
+                    'license_warning' => 'user_limit_exceeded'
+                ), home_url());
+            }
+            
+            wp_redirect($redirect_url);
+            exit;
+        }
+    }
+
+    /**
+     * Check if a specific view/page exists
+     * 
+     * @param string $view_name View parameter name
+     * @return bool True if page exists
+     */
+    private function page_exists($view_name) {
+        // Simple check - in a real implementation you'd check against your route handlers
+        return in_array($view_name, array('all_personnel', 'personnel', 'users'));
+    }
+
+    /**
+     * Get user limit warning message
+     * 
+     * @return string|false Warning message if limit exceeded, false otherwise
+     */
+    public function get_user_limit_warning() {
+        if (!$this->is_user_limit_exceeded()) {
+            return false;
+        }
+        
+        $user_limit = get_option('insurance_crm_license_user_limit', 5);
+        $current_users = $this->get_current_user_count();
+        
+        return sprintf(
+            'Uyarı: Kullanıcı sayısını aştınız! Mevcut: %d kullanıcı, Lisans limiti: %d kullanıcı. Lütfen kullanıcı sayısını azaltın veya lisansınızı yükseltin.',
+            $current_users,
+            $user_limit
+        );
     }
 
     /**
@@ -925,6 +1031,23 @@ class Insurance_CRM_License_Manager {
                     $module_slugs = array_column($backend_modules, 'slug');
                     update_option('insurance_crm_license_modules', $module_slugs);
                     error_log('License Manager: Retrieved modules from backend: ' . implode(', ', $module_slugs));
+                }
+            }
+            
+            // Enhanced fallback: try to get modules from server API directly
+            if (empty($module_slugs) || !is_array($module_slugs)) {
+                error_log('License Manager: Attempting direct API call to get licensed modules');
+                if ($this->license_api) {
+                    $license_key = get_option('insurance_crm_license_key', '');
+                    if (!empty($license_key)) {
+                        // Try direct license info call
+                        $license_info = $this->license_api->get_license_info($license_key);
+                        if (isset($license_info['data']['modules']) && is_array($license_info['data']['modules'])) {
+                            $module_slugs = $license_info['data']['modules'];
+                            update_option('insurance_crm_license_modules', $module_slugs);
+                            error_log('License Manager: Retrieved modules from direct license info: ' . implode(', ', $module_slugs));
+                        }
+                    }
                 }
             }
             
