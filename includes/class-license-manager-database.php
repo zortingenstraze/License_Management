@@ -442,6 +442,9 @@ class License_Manager_Database {
         // First ensure the taxonomy is registered
         $this->register_modules_taxonomy();
         
+        // Flush rewrite rules to ensure taxonomy is properly registered
+        flush_rewrite_rules();
+        
         $modules = array(
             'dashboard' => array(
                 'name' => __('Dashboard', 'license-manager'),
@@ -518,19 +521,37 @@ class License_Manager_Database {
                 if (!is_wp_error($term)) {
                     if (empty(get_term_meta($term_id, 'view_parameter', true))) {
                         update_term_meta($term_id, 'view_parameter', $module_data['view_parameter']);
+                        error_log('License Manager: Updated view_parameter for existing module: ' . $slug);
                     }
                     if (empty(get_term_meta($term_id, 'description', true))) {
                         update_term_meta($term_id, 'description', $module_data['description']);
+                        error_log('License Manager: Updated description for existing module: ' . $slug);
                     }
                     if (empty(get_term_meta($term_id, 'category', true))) {
                         update_term_meta($term_id, 'category', $module_data['category']);
+                        error_log('License Manager: Updated category for existing module: ' . $slug);
                     }
                 }
             }
         }
         
+        // Clean any orphaned object relationships
+        $this->clean_orphaned_module_relationships();
+        
         error_log('License Manager: Force create modules completed. Created: ' . $created_count);
         return $created_count;
+    }
+    
+    /**
+     * Clean orphaned module relationships (terms that exist but aren't properly linked)
+     */
+    private function clean_orphaned_module_relationships() {
+        global $wpdb;
+        
+        // This helps ensure data consistency
+        $wpdb->query("DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id NOT IN (SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy})");
+        
+        error_log('License Manager: Cleaned orphaned module relationships');
     }
     
     /**

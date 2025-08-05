@@ -81,6 +81,11 @@ class License_Manager_Plugin {
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-api.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-customer.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-license.php';
+        
+        // Load extended API endpoints
+        if (file_exists(LICENSE_MANAGER_PLUGIN_DIR . 'api/endpoints/modules.php')) {
+            require_once LICENSE_MANAGER_PLUGIN_DIR . 'api/endpoints/modules.php';
+        }
     }
     
     /**
@@ -177,6 +182,12 @@ class License_Manager_Plugin {
         
         // Initialize API endpoints (with enhanced reliability)
         $api = new License_Manager_API();
+        
+        // Initialize extended modules API if available
+        if (class_exists('License_Manager_Modules_API')) {
+            new License_Manager_Modules_API();
+            error_log("BALKAy License: Extended modules API initialized");
+        }
         
         // Force aggressive rewrite rule management
         $this->manage_rewrite_rules();

@@ -655,30 +655,43 @@ class Insurance_CRM_License_Manager {
      * @return bool True if module is allowed
      */
     public function is_module_allowed($module) {
+        error_log("License Manager: Checking if module is allowed: $module");
+        
         // If license is bypassed, allow all modules
         if ($this->license_api && $this->license_api->is_license_bypassed()) {
+            error_log("License Manager: License is bypassed, allowing module: $module");
             return true;
         }
 
         // If no valid license, deny access
         if (!$this->can_access_data()) {
+            error_log("License Manager: No valid license, denying module access: $module");
             return false;
         }
 
         $allowed_modules = get_option('insurance_crm_license_modules', array());
         
+        error_log("License Manager: Allowed modules from license: " . implode(', ', $allowed_modules));
+        
         // If no specific modules defined, allow all
         if (empty($allowed_modules)) {
+            error_log("License Manager: No specific modules defined, allowing all. Module: $module");
             return true;
         }
 
         // Check direct module slug match
         if (in_array($module, $allowed_modules)) {
+            error_log("License Manager: Direct module match found for: $module");
             return true;
         }
         
+        error_log("License Manager: No direct match, checking view parameter: $module");
+        
         // Check view parameter match by querying server modules
-        return $this->is_view_parameter_allowed($module);
+        $result = $this->is_view_parameter_allowed($module);
+        error_log("License Manager: View parameter check result for $module: " . ($result ? 'ALLOWED' : 'DENIED'));
+        
+        return $result;
     }
     
     /**
