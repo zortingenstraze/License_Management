@@ -41,9 +41,17 @@ class License_Manager_Modules {
     public function get_module($term_id) {
         error_log("License Manager Modules: Getting module by ID: $term_id");
         
+        // Ensure taxonomy is registered first
+        if (!taxonomy_exists('lm_modules')) {
+            error_log("License Manager Modules: Taxonomy not registered, registering now");
+            $this->database->register_modules_taxonomy();
+            // Force flush to ensure taxonomy is available
+            flush_rewrite_rules(false);
+        }
+        
         $term = get_term($term_id, 'lm_modules');
         if (is_wp_error($term) || !$term) {
-            error_log("License Manager Modules: Module not found for ID: $term_id");
+            error_log("License Manager Modules: Module not found for ID: $term_id. Error: " . (is_wp_error($term) ? $term->get_error_message() : 'Term is null'));
             return null;
         }
         
@@ -52,7 +60,7 @@ class License_Manager_Modules {
         $term->description = get_term_meta($term->term_id, 'description', true);
         $term->category = get_term_meta($term->term_id, 'category', true);
         
-        error_log("License Manager Modules: Successfully retrieved module: " . $term->name);
+        error_log("License Manager Modules: Successfully retrieved module: " . $term->name . " (view: " . $term->view_parameter . ")");
         return $term;
     }
     

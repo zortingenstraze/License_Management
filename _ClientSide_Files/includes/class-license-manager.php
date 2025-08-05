@@ -679,19 +679,67 @@ class Insurance_CRM_License_Manager {
             return true;
         }
 
-        // Check direct module slug match
+        // Check direct module slug match first
         if (in_array($module, $allowed_modules)) {
             error_log("License Manager: Direct module match found for: $module");
             return true;
         }
         
-        error_log("License Manager: No direct match, checking view parameter: $module");
+        // Check if it's a view parameter that maps to an allowed module
+        error_log("License Manager: No direct match, checking view parameter mappings: $module");
         
-        // Check view parameter match by querying server modules
-        $result = $this->is_view_parameter_allowed($module);
-        error_log("License Manager: View parameter check result for $module: " . ($result ? 'ALLOWED' : 'DENIED'));
+        // Get module mappings (with fallbacks)
+        $module_mappings = $this->get_module_view_mappings();
         
-        return $result;
+        // Check if any allowed module has this view parameter
+        foreach ($allowed_modules as $module_slug) {
+            if (isset($module_mappings[$module_slug]) && 
+                $module_mappings[$module_slug] === $module) {
+                error_log("License Manager: View parameter '$module' allowed via module slug: $module_slug");
+                return true;
+            }
+        }
+        
+        // Check reverse mapping - if the input is a module slug that maps to a view parameter
+        if (isset($module_mappings[$module])) {
+            $view_param = $module_mappings[$module];
+            error_log("License Manager: Module '$module' maps to view parameter '$view_param'");
+            
+            // Check if any allowed module has the same view parameter
+            foreach ($allowed_modules as $allowed_slug) {
+                if (isset($module_mappings[$allowed_slug]) && 
+                    $module_mappings[$allowed_slug] === $view_param) {
+                    error_log("License Manager: Module '$module' allowed via view parameter mapping to '$allowed_slug'");
+                    return true;
+                }
+                // Also check direct slug match for the view parameter
+                if ($allowed_slug === $view_param) {
+                    error_log("License Manager: Module '$module' allowed via direct view parameter match: $allowed_slug");
+                    return true;
+                }
+            }
+        }
+        
+        // Special case handling for common module variations
+        $module_variations = array(
+            'sale_opportunities' => array('sales-opportunities', 'sales_opportunities', 'sale-opportunities'),
+            'sales-opportunities' => array('sale_opportunities', 'sales_opportunities', 'sale-opportunities'),
+            'sales_opportunities' => array('sale_opportunities', 'sales-opportunities', 'sale-opportunities'),
+            'data_transfer' => array('data-transfer', 'data_transfer'),
+            'data-transfer' => array('data_transfer', 'data_transfer')
+        );
+        
+        if (isset($module_variations[$module])) {
+            foreach ($module_variations[$module] as $variation) {
+                if (in_array($variation, $allowed_modules)) {
+                    error_log("License Manager: Module '$module' allowed via variation match: $variation");
+                    return true;
+                }
+            }
+        }
+        
+        error_log("License Manager: Module access DENIED for: $module");
+        return false;
     }
     
     /**
@@ -751,7 +799,7 @@ class Insurance_CRM_License_Manager {
         $cached_mappings = get_transient($cache_key);
         
         if ($cached_mappings !== false) {
-            error_log('License Manager: Using cached module mappings');
+            error_log('License Manager: Using cached module mappings: ' . print_r($cached_mappings, true));
             return $cached_mappings;
         }
         
@@ -767,7 +815,7 @@ class Insurance_CRM_License_Manager {
                 $modules_array = isset($modules_data['modules']) ? $modules_data['modules'] : array();
                 
                 if (!empty($modules_array) && is_array($modules_array)) {
-                    error_log('License Manager: Processing ' . count($modules_array) . ' modules');
+                    error_log('License Manager: Processing ' . count($modules_array) . ' modules from server');
                     foreach ($modules_array as $module) {
                         if (!empty($module['slug']) && !empty($module['view_parameter'])) {
                             $mappings[$module['slug']] = $module['view_parameter'];
@@ -789,11 +837,53 @@ class Insurance_CRM_License_Manager {
             error_log('License Manager: No license API instance available');
         }
         
+        // Add fallback mappings for common modules if server doesn't provide them
+        $fallback_mappings = array(
+            'sale_opportunities' => 'sale_opportunities',
+            'sales-opportunities' => 'sale_opportunities', // Handle legacy format
+            'dashboard' => 'dashboard',
+            'customers' => 'customers',
+            'policies' => 'policies',
+            'quotes' => 'quotes',
+            'tasks' => 'tasks',
+            'reports' => 'reports',
+            'data_transfer' => 'data-transfer'
+        );
+        
+        // Merge server mappings with fallback mappings (server takes precedence)
+        $mappings = array_merge($fallback_mappings, $mappings);
+        
+        error_log('License Manager: Final mappings (including fallbacks): ' . print_r($mappings, true));
+        
         // Cache the mappings for 1 hour (even if empty to prevent repeated failed requests)
         set_transient($cache_key, $mappings, HOUR_IN_SECONDS);
         error_log('License Manager: Cached ' . count($mappings) . ' module mappings');
         
         return $mappings;
+    }
+    
+    /**
+     * Force refresh module mappings cache
+     * 
+     * @return array Fresh mappings
+     */
+    public function refresh_module_mappings() {
+        error_log('License Manager: Force refreshing module mappings');
+        
+        // Clear the cache
+        delete_transient('insurance_crm_module_mappings');
+        
+        // Get fresh mappings
+        return $this->get_module_view_mappings();
+    }
+    
+    /**
+     * Get current module mappings for debugging
+     * 
+     * @return array Current mappings
+     */
+    public function get_current_module_mappings() {
+        return $this->get_module_view_mappings();
     }
 
     /**

@@ -470,9 +470,9 @@ class License_Manager_Database {
                 'description' => __('Teklif hazırlama ve yönetimi', 'license-manager'),
                 'category' => 'management'
             ),
-            'sales-opportunities' => array(
+            'sale_opportunities' => array(
                 'name' => __('Satış Fırsatları', 'license-manager'),
-                'view_parameter' => 'sales-opportunities',
+                'view_parameter' => 'sale_opportunities',
                 'description' => __('Satış fırsatları ve pipeline yönetimi', 'license-manager'),
                 'category' => 'sales'
             ),
@@ -551,6 +551,27 @@ class License_Manager_Database {
     }
     
     /**
+     * Force refresh all default modules and fix any mapping issues
+     */
+    public function refresh_default_modules() {
+        error_log('License Manager: Refreshing default modules');
+        
+        // Reset the flag first to allow recreation
+        $this->reset_defaults_flag();
+        
+        // Clear all caches
+        wp_cache_flush();
+        delete_transient('insurance_crm_module_mappings');
+        clean_taxonomy_cache('lm_modules');
+        
+        // Force recreation
+        $created = $this->force_create_default_modules();
+        
+        error_log('License Manager: Refreshed default modules, created/updated: ' . $created);
+        return $created;
+    }
+    
+    /**
      * Clean orphaned module relationships (terms that exist but aren't properly linked)
      */
     private function clean_orphaned_module_relationships() {
@@ -625,49 +646,92 @@ class License_Manager_Database {
     public function get_available_modules() {
         // Ensure taxonomy is registered
         if (!taxonomy_exists('lm_modules')) {
+            error_log('License Manager: Taxonomy not registered, registering now');
             $this->register_modules_taxonomy();
             // Force flush rewrite rules to ensure taxonomy is available
-            flush_rewrite_rules();
+            flush_rewrite_rules(false);
+            // Allow some time for WordPress to process the taxonomy registration
+            usleep(100000); // 0.1 seconds
         }
         
-        // First try to get existing modules
-        $modules = get_terms(array(
-            'taxonomy' => 'lm_modules',
-            'hide_empty' => false,
-        ));
+        // Try to get existing modules with retry logic
+        $retry_count = 0;
+        $max_retries = 3;
+        $modules = false;
+        
+        while ($retry_count < $max_retries && (is_wp_error($modules) || $modules === false)) {
+            $modules = get_terms(array(
+                'taxonomy' => 'lm_modules',
+                'hide_empty' => false,
+                'cache_domain' => 'license_manager_modules'
+            ));
+            
+            if (is_wp_error($modules)) {
+                error_log('License Manager: Error getting modules (attempt ' . ($retry_count + 1) . '): ' . $modules->get_error_message());
+                if ($retry_count < $max_retries - 1) {
+                    usleep(200000); // 0.2 seconds delay between retries
+                }
+            }
+            $retry_count++;
+        }
+        
+        // If we still have an error, return empty array
+        if (is_wp_error($modules)) {
+            error_log('License Manager: Final error getting modules: ' . $modules->get_error_message());
+            return array();
+        }
         
         // Only create defaults if taxonomy exists but NO modules exist AND we haven't created defaults before
-        if (!is_wp_error($modules) && empty($modules)) {
+        if (empty($modules)) {
             $defaults_created = get_option('license_manager_defaults_created', false);
             if (!$defaults_created) {
                 error_log('License Manager: No modules found and defaults not created yet, creating defaults');
                 $this->force_create_default_modules();
                 update_option('license_manager_defaults_created', true);
                 
-                // Try again after creating defaults
+                // Clear caches after creating defaults
+                wp_cache_flush();
+                clean_taxonomy_cache('lm_modules');
+                
+                // Try again after creating defaults with a small delay
+                usleep(100000); // 0.1 seconds
                 $modules = get_terms(array(
                     'taxonomy' => 'lm_modules',
                     'hide_empty' => false,
+                    'cache_domain' => 'license_manager_modules'
                 ));
+                
+                if (is_wp_error($modules)) {
+                    error_log('License Manager: Error getting modules after creating defaults: ' . $modules->get_error_message());
+                    return array();
+                }
             } else {
-                error_log('License Manager: No modules found but defaults already created - returning empty array');
-                return array();
+                error_log('License Manager: No modules found but defaults already created - this might indicate a problem');
             }
         }
         
-        if (is_wp_error($modules)) {
-            error_log('License Manager: Error getting modules: ' . $modules->get_error_message());
+        // Ensure we have an array
+        if (!is_array($modules)) {
+            error_log('License Manager: Modules is not an array, returning empty array');
             return array();
         }
         
         // Add meta data for each module (view parameters, description, etc.)
         foreach ($modules as $module) {
-            $module->view_parameter = get_term_meta($module->term_id, 'view_parameter', true);
-            $module->description = get_term_meta($module->term_id, 'description', true);
-            $module->category = get_term_meta($module->term_id, 'category', true);
+            if (is_object($module) && isset($module->term_id)) {
+                $module->view_parameter = get_term_meta($module->term_id, 'view_parameter', true);
+                $module->description = get_term_meta($module->term_id, 'description', true);
+                $module->category = get_term_meta($module->term_id, 'category', true);
+            }
         }
         
-        error_log('License Manager: Retrieved ' . count($modules) . ' modules');
+        error_log('License Manager: Successfully retrieved ' . count($modules) . ' modules');
+        foreach ($modules as $module) {
+            if (is_object($module)) {
+                error_log('License Manager: Module - ' . $module->name . ' (slug: ' . $module->slug . ', view: ' . ($module->view_parameter ?? 'none') . ')');
+            }
+        }
+        
         return $modules;
     }
     

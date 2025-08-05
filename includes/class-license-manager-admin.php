@@ -881,6 +881,21 @@ class License_Manager_Admin {
                         break;
                 }
             }
+            
+            // Add debug button for administrators
+            if (current_user_can('manage_options') && isset($_GET['debug'])) {
+                echo '<div class="notice notice-info"><p>';
+                echo '<strong>Debug Bilgileri:</strong><br>';
+                echo 'Toplam modül sayısı: ' . count($modules_manager->get_modules()) . '<br>';
+                echo 'Varsayılan modüller oluşturuldu: ' . (get_option('license_manager_defaults_created', false) ? 'Evet' : 'Hayır') . '<br>';
+                echo 'Taxonomy kayıtlı: ' . (taxonomy_exists('lm_modules') ? 'Evet' : 'Hayır') . '<br>';
+                echo '<a href="' . admin_url('admin.php?page=license-manager&debug_modules=1') . '" class="button">Modül Sorunlarını Düzelt</a>';
+                echo '</p></div>';
+            } elseif (current_user_can('manage_options')) {
+                echo '<div class="notice notice-info"><p>';
+                echo '<a href="' . add_query_arg('debug', '1') . '" class="button">Debug Bilgilerini Göster</a>';
+                echo '</p></div>';
+            }
             ?>
             
             <div class="modules-list">
