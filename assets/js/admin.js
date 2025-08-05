@@ -494,5 +494,81 @@
             }
         });
     }
+    
+    /**
+     * Initialize module management functionality
+     */
+    function initModuleManager() {
+        // Auto-generate slug from module name
+        $('#name').on('input', function() {
+            var name = $(this).val();
+            var slug = generateSlug(name);
+            $('#slug').val(slug);
+            
+            // Also suggest view parameter
+            if ($('#view_parameter').val() === '') {
+                $('#view_parameter').val(slug);
+            }
+        });
+        
+        // Validate view parameter format
+        $('#view_parameter').on('input', function() {
+            var viewParam = $(this).val();
+            var isValid = /^[a-z0-9\-]*$/i.test(viewParam);
+            
+            if (viewParam && !isValid) {
+                $(this).css('border-color', '#dc3232');
+                showParameterError('View parametresi sadece harfler, rakamlar ve tire içerebilir');
+            } else {
+                $(this).css('border-color', '');
+                hideParameterError();
+            }
+        });
+        
+        // Confirm module deletion
+        $('.button-link-delete').on('click', function(e) {
+            if (!confirm('Bu modülü silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.')) {
+                e.preventDefault();
+                return false;
+            }
+        });
+    }
+    
+    /**
+     * Generate slug from text
+     */
+    function generateSlug(text) {
+        return text
+            .toLowerCase()
+            .replace(/\s+/g, '-')        // Replace spaces with -
+            .replace(/[^\w\-]+/g, '')    // Remove all non-word chars
+            .replace(/\-\-+/g, '-')      // Replace multiple - with single -
+            .replace(/^-+/, '')          // Trim - from start of text
+            .replace(/-+$/, '');         // Trim - from end of text
+    }
+    
+    /**
+     * Show parameter validation error
+     */
+    function showParameterError(message) {
+        $('#view_parameter').next('.parameter-error').remove();
+        $('#view_parameter').after('<div class="parameter-error" style="color: #dc3232; font-size: 12px; margin-top: 4px;">' + message + '</div>');
+    }
+    
+    /**
+     * Hide parameter validation error
+     */
+    function hideParameterError() {
+        $('#view_parameter').next('.parameter-error').remove();
+    }
+    
+    // Initialize module manager when on module pages
+    if (window.pagenow && (window.pagenow.indexOf('license-manager-modules') !== -1 || 
+                          window.pagenow.indexOf('license-manager-add-module') !== -1 ||
+                          window.pagenow.indexOf('license-manager-edit-module') !== -1)) {
+        $(document).ready(function() {
+            initModuleManager();
+        });
+    }
 
 })(jQuery);

@@ -913,23 +913,24 @@ class License_Manager_Admin {
                 <?php if (!empty($modules)) : ?>
                     <?php foreach ($modules as $module) : ?>
                         <tr>
-                            <td><strong><?php echo esc_html($module->name); ?></strong></td>
-                            <td><code><?php echo esc_html($module->slug); ?></code></td>
-                            <td>
+                            <td data-label="<?php _e('Modül Adı', 'license-manager'); ?>"><strong><?php echo esc_html($module->name); ?></strong></td>
+                            <td data-label="<?php _e('Slug', 'license-manager'); ?>"><code><?php echo esc_html($module->slug); ?></code></td>
+                            <td data-label="<?php _e('View Parametresi', 'license-manager'); ?>">
                                 <?php if (!empty($module->view_parameter)) : ?>
                                     <code>?view=<?php echo esc_html($module->view_parameter); ?></code>
                                 <?php else : ?>
                                     <span class="description"><?php _e('Yok', 'license-manager'); ?></span>
                                 <?php endif; ?>
                             </td>
-                            <td>
+                            <td data-label="<?php _e('Kategori', 'license-manager'); ?>">
                                 <?php 
                                 $category_name = isset($categories[$module->category]) ? $categories[$module->category] : $module->category;
-                                echo esc_html($category_name);
+                                $category_class = 'module-category-' . esc_attr($module->category);
                                 ?>
+                                <span class="<?php echo $category_class; ?>"><?php echo esc_html($category_name); ?></span>
                             </td>
-                            <td><?php echo esc_html($module->description); ?></td>
-                            <td>
+                            <td data-label="<?php _e('Açıklama', 'license-manager'); ?>"><?php echo esc_html($module->description); ?></td>
+                            <td data-label="<?php _e('İşlemler', 'license-manager'); ?>">
                                 <a href="<?php echo admin_url('admin.php?page=license-manager-modules&action=edit&id=' . $module->term_id); ?>" class="button button-small"><?php _e('Düzenle', 'license-manager'); ?></a>
                                 <a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=license_manager_delete_module&id=' . $module->term_id), 'license_manager_delete_module_' . $module->term_id); ?>" class="button button-small button-link-delete" onclick="return confirm('<?php _e('Bu modülü silmek istediğinizden emin misiniz?', 'license-manager'); ?>')"><?php _e('Sil', 'license-manager'); ?></a>
                             </td>
