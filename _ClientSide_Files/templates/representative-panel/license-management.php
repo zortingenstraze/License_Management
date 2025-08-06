@@ -159,6 +159,7 @@ if (isset($_POST['test_connection']) && isset($_POST['test_nonce']) && wp_verify
 $license_info = array();
 if ($insurance_crm_license_manager) {
     $license_info = $insurance_crm_license_manager->get_license_info();
+    error_log('License Management Template: Got license info from manager with ' . count($license_info['licensed_modules'] ?? array()) . ' licensed modules');
 } else {
     // Fallback - get from options directly
     $license_info = array(
@@ -170,11 +171,13 @@ if ($insurance_crm_license_manager) {
         'expiry' => get_option('insurance_crm_license_expiry', ''),
         'user_limit' => get_option('insurance_crm_license_user_limit', 5),
         'modules' => get_option('insurance_crm_license_modules', array()),
+        'licensed_modules' => array(), // Empty for fallback
         'last_check' => get_option('insurance_crm_license_last_check', ''),
         'current_users' => 0,
         'in_grace_period' => false,
         'grace_days_remaining' => 0
     );
+    error_log('License Management Template: Using fallback license info (no manager available)');
 }
 
 // Get current user count
@@ -657,6 +660,128 @@ if ($license_status === 'active' && in_array($license_type, array('monthly', 'ye
     .tab-content[style*="display: none"] {
         display: none !important;
     }
+    
+    /* Licensed Modules Styles */
+    .licensed-modules-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .licensed-module-item {
+        background: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        padding: 15px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        transition: box-shadow 0.2s ease;
+    }
+    
+    .licensed-module-item:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .module-icon {
+        background: linear-gradient(135deg, #1976d2, #1565c0);
+        color: white;
+        width: 40px;
+        height: 40px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+    
+    .module-details {
+        flex: 1;
+    }
+    
+    .module-details h4 {
+        margin: 0 0 5px 0;
+        font-size: 16px;
+        color: #333;
+        font-weight: 600;
+    }
+    
+    .module-description {
+        margin: 0 0 8px 0;
+        font-size: 13px;
+        color: #666;
+        line-height: 1.4;
+    }
+    
+    .module-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+    
+    .module-slug,
+    .module-view {
+        font-size: 11px;
+        color: #888;
+        background: #f5f5f5;
+        padding: 2px 6px;
+        border-radius: 3px;
+        width: fit-content;
+    }
+    
+    .module-status {
+        flex-shrink: 0;
+        align-self: center;
+    }
+    
+    .status-active {
+        background: #e8f5e9;
+        color: #2e7d32;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .modules-summary {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        padding: 12px 15px;
+        text-align: center;
+        margin-top: 15px;
+    }
+    
+    .modules-summary p {
+        margin: 0;
+        color: #495057;
+        font-size: 14px;
+    }
+    
+    .no-modules-message {
+        background: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 6px;
+        padding: 15px;
+        text-align: center;
+        color: #856404;
+    }
+    
+    .no-modules-message i {
+        font-size: 24px;
+        margin-bottom: 10px;
+        display: block;
+    }
+    
+    .no-modules-message p {
+        margin: 0;
+        font-size: 14px;
+    }
 </style>
 
 <?php if ($form_result): ?>
@@ -845,6 +970,80 @@ if ($license_status === 'active' && in_array($license_type, array('monthly', 'ye
             <?php endif; ?>
         </div>
     </div>
+    
+    <!-- Licensed Modules Section -->
+    <?php if ($license_status === 'active' && !empty($license_info['licensed_modules'])): ?>
+    <div class="license-form-section">
+        <h3><i class="fas fa-puzzle-piece"></i> İzinli Modüller</h3>
+        
+        <div class="licensed-modules-grid">
+            <?php foreach ($license_info['licensed_modules'] as $module): ?>
+            <div class="licensed-module-item">
+                <div class="module-icon">
+                    <i class="fas fa-<?php 
+                        // Icon mapping based on module category or name
+                        $icon = 'cog'; // default
+                        if (stripos($module['name'], 'dashboard') !== false || stripos($module['slug'], 'dashboard') !== false) {
+                            $icon = 'tachometer-alt';
+                        } elseif (stripos($module['name'], 'customer') !== false || stripos($module['slug'], 'customer') !== false) {
+                            $icon = 'users';
+                        } elseif (stripos($module['name'], 'sales') !== false || stripos($module['slug'], 'sale') !== false || stripos($module['name'], 'satış') !== false) {
+                            $icon = 'chart-line';
+                        } elseif (stripos($module['name'], 'polic') !== false || stripos($module['slug'], 'polic') !== false) {
+                            $icon = 'shield-alt';
+                        } elseif (stripos($module['name'], 'report') !== false || stripos($module['slug'], 'report') !== false) {
+                            $icon = 'file-alt';
+                        } elseif (stripos($module['name'], 'task') !== false || stripos($module['slug'], 'task') !== false) {
+                            $icon = 'tasks';
+                        } elseif (stripos($module['name'], 'quote') !== false || stripos($module['slug'], 'quote') !== false) {
+                            $icon = 'file-invoice-dollar';
+                        } elseif (stripos($module['name'], 'data') !== false || stripos($module['slug'], 'data') !== false) {
+                            $icon = 'database';
+                        }
+                        echo $icon;
+                    ?>"></i>
+                </div>
+                <div class="module-details">
+                    <h4><?php echo esc_html($module['name']); ?></h4>
+                    <?php if (!empty($module['description'])): ?>
+                    <p class="module-description"><?php echo esc_html($module['description']); ?></p>
+                    <?php endif; ?>
+                    <div class="module-meta">
+                        <span class="module-slug">Modül: <?php echo esc_html($module['slug']); ?></span>
+                        <?php if (!empty($module['view_parameter'])): ?>
+                        <span class="module-view">Görünüm: <?php echo esc_html($module['view_parameter']); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="module-status">
+                    <span class="status-active"><i class="fas fa-check-circle"></i> Aktif</span>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        
+        <div class="modules-summary">
+            <p><strong>Toplam <?php echo count($license_info['licensed_modules']); ?> modül</strong> lisansınıza dahildir ve kullanıma hazırdır.</p>
+        </div>
+    </div>
+    <?php elseif ($license_status === 'active'): ?>
+    <div class="license-form-section">
+        <h3><i class="fas fa-puzzle-piece"></i> İzinli Modüller</h3>
+        <div class="no-modules-message">
+            <i class="fas fa-info-circle"></i>
+            <p>Henüz hiçbir modül lisansınıza atanmamış. Lütfen sistem yöneticinizle iletişime geçin.</p>
+            <?php if (defined('WP_DEBUG') && WP_DEBUG): ?>
+            <div style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-left: 3px solid #0073aa; font-size: 12px;">
+                <strong>Debug Info:</strong><br>
+                License status: <?php echo esc_html($license_status); ?><br>
+                License modules option: <?php echo esc_html(implode(', ', get_option('insurance_crm_license_modules', array()))); ?><br>
+                Licensed modules count: <?php echo count($license_info['licensed_modules'] ?? array()); ?><br>
+                Manager available: <?php echo $insurance_crm_license_manager ? 'Yes' : 'No'; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
     
     <?php if ($is_access_restricted): ?>
     <div class="license-form-section">

@@ -76,6 +76,37 @@ class Insurance_CRM_License_Manager {
     public function init() {
         // Check license status if needed
         $this->maybe_check_license_status();
+        
+        // Add user limit enforcement hooks
+        add_action('wp', array($this, 'maybe_enforce_user_limit'));
+        add_action('admin_notices', array($this, 'show_user_limit_warnings'));
+    }
+
+    /**
+     * Maybe enforce user limit on specific pages
+     */
+    public function maybe_enforce_user_limit() {
+        // Only enforce on specific pages that require user limit checking
+        $restricted_views = array('all_personnel', 'personnel', 'users', 'add_personnel');
+        $current_view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : '';
+        
+        if (in_array($current_view, $restricted_views)) {
+            $this->enforce_user_limit();
+        }
+    }
+
+    /**
+     * Show user limit warnings in admin
+     */
+    public function show_user_limit_warnings() {
+        if (is_admin() && current_user_can('manage_options')) {
+            $warning = $this->get_user_limit_warning();
+            if ($warning) {
+                echo '<div class="notice notice-warning is-dismissible">';
+                echo '<p><strong>Lisans Uyarısı:</strong> ' . esc_html($warning) . '</p>';
+                echo '</div>';
+            }
+        }
     }
 
     /**
@@ -242,6 +273,81 @@ class Insurance_CRM_License_Manager {
         $current_users = $this->get_current_user_count();
         
         return $current_users > $user_limit;
+    }
+
+    /**
+     * Enforce user limit with warning and redirect
+     * Should be called on pages that need user limit enforcement
+     * 
+     * @return void Redirects if limit exceeded
+     */
+    public function enforce_user_limit() {
+        if ($this->is_user_limit_exceeded()) {
+            $user_limit = get_option('insurance_crm_license_user_limit', 5);
+            $current_users = $this->get_current_user_count();
+            
+            // Store restriction details for the page
+            set_transient('insurance_crm_restriction_details_' . get_current_user_id(), array(
+                'type' => 'user_limit',
+                'current_users' => $current_users,
+                'max_users' => $user_limit,
+                'message' => sprintf(
+                    'Kullanıcı sayısını aştınız! Mevcut kullanıcı sayısı: %d, Lisansınızın izin verdiği maksimum kullanıcı sayısı: %d. Lütfen kullanıcı sayısını lisansınızın izin verdiği kadar kullanın veya yeni lisans satın alın.',
+                    $current_users,
+                    $user_limit
+                )
+            ), 300); // 5 minutes
+            
+            // Redirect to all_personnel page or license restriction page
+            $redirect_url = add_query_arg(array(
+                'view' => 'license-restriction',
+                'restriction' => 'user_limit',
+                'current_users' => $current_users,
+                'max_users' => $user_limit
+            ), home_url());
+            
+            // If all_personnel page exists, redirect there instead
+            if ($this->page_exists('all_personnel')) {
+                $redirect_url = add_query_arg(array(
+                    'view' => 'all_personnel',
+                    'license_warning' => 'user_limit_exceeded'
+                ), home_url());
+            }
+            
+            wp_redirect($redirect_url);
+            exit;
+        }
+    }
+
+    /**
+     * Check if a specific view/page exists
+     * 
+     * @param string $view_name View parameter name
+     * @return bool True if page exists
+     */
+    private function page_exists($view_name) {
+        // Simple check - in a real implementation you'd check against your route handlers
+        return in_array($view_name, array('all_personnel', 'personnel', 'users'));
+    }
+
+    /**
+     * Get user limit warning message
+     * 
+     * @return string|false Warning message if limit exceeded, false otherwise
+     */
+    public function get_user_limit_warning() {
+        if (!$this->is_user_limit_exceeded()) {
+            return false;
+        }
+        
+        $user_limit = get_option('insurance_crm_license_user_limit', 5);
+        $current_users = $this->get_current_user_count();
+        
+        return sprintf(
+            'Uyarı: Kullanıcı sayısını aştınız! Mevcut: %d kullanıcı, Lisans limiti: %d kullanıcı. Lütfen kullanıcı sayısını azaltın veya lisansınızı yükseltin.',
+            $current_users,
+            $user_limit
+        );
     }
 
     /**
@@ -651,29 +757,218 @@ class Insurance_CRM_License_Manager {
     /**
      * Check if module is allowed by license
      * 
-     * @param string $module Module name
+     * @param string $module Module name or view parameter
      * @return bool True if module is allowed
      */
     public function is_module_allowed($module) {
+        error_log("License Manager: Checking if module is allowed: $module");
+        
         // If license is bypassed, allow all modules
         if ($this->license_api && $this->license_api->is_license_bypassed()) {
+            error_log("License Manager: License is bypassed, allowing module: $module");
             return true;
         }
 
         // If no valid license, deny access
         if (!$this->can_access_data()) {
+            error_log("License Manager: No valid license, denying module access: $module");
             return false;
         }
 
         $allowed_modules = get_option('insurance_crm_license_modules', array());
         
+        error_log("License Manager: Allowed modules from license: " . implode(', ', $allowed_modules));
+        
         // If no specific modules defined, allow all
         if (empty($allowed_modules)) {
+            error_log("License Manager: No specific modules defined, allowing all. Module: $module");
             return true;
         }
 
-        return in_array($module, $allowed_modules);
+        // Check direct module slug match first
+        if (in_array($module, $allowed_modules)) {
+            error_log("License Manager: Direct module match found for: $module");
+            return true;
+        }
+        
+        // Check if it's a view parameter that maps to an allowed module
+        error_log("License Manager: No direct match, checking view parameter mappings: $module");
+        
+        // Get module mappings (with fallbacks)
+        $module_mappings = $this->get_module_view_mappings();
+        
+        // Check if any allowed module has this view parameter
+        foreach ($allowed_modules as $module_slug) {
+            if (isset($module_mappings[$module_slug]) && 
+                $module_mappings[$module_slug] === $module) {
+                error_log("License Manager: View parameter '$module' allowed via module slug: $module_slug");
+                return true;
+            }
+        }
+        
+        // Check reverse mapping - if the input is a module slug that maps to a view parameter
+        if (isset($module_mappings[$module])) {
+            $view_param = $module_mappings[$module];
+            error_log("License Manager: Module '$module' maps to view parameter '$view_param'");
+            
+            // Check if any allowed module has the same view parameter
+            foreach ($allowed_modules as $allowed_slug) {
+                if (isset($module_mappings[$allowed_slug]) && 
+                    $module_mappings[$allowed_slug] === $view_param) {
+                    error_log("License Manager: Module '$module' allowed via view parameter mapping to '$allowed_slug'");
+                    return true;
+                }
+                // Also check direct slug match for the view parameter
+                if ($allowed_slug === $view_param) {
+                    error_log("License Manager: Module '$module' allowed via direct view parameter match: $allowed_slug");
+                    return true;
+                }
+            }
+        }
+        
+        // Special case handling for common module variations
+        $module_variations = array(
+            'sale_opportunities' => array('sales-opportunities', 'sales_opportunities', 'sale-opportunities'),
+            'sales-opportunities' => array('sale_opportunities', 'sales_opportunities', 'sale-opportunities'),
+            'sales_opportunities' => array('sale_opportunities', 'sales-opportunities', 'sale-opportunities'),
+            'data_transfer' => array('data-transfer', 'data_transfer'),
+            'data-transfer' => array('data_transfer', 'data_transfer')
+        );
+        
+        if (isset($module_variations[$module])) {
+            foreach ($module_variations[$module] as $variation) {
+                if (in_array($variation, $allowed_modules)) {
+                    error_log("License Manager: Module '$module' allowed via variation match: $variation");
+                    return true;
+                }
+            }
+        }
+        
+        error_log("License Manager: Module access DENIED for: $module");
+        return false;
     }
+    
+    /**
+     * Check if view parameter is allowed
+     * 
+     * @param string $view_parameter View parameter to check
+     * @return bool True if allowed
+     */
+    public function is_view_parameter_allowed($view_parameter) {
+        $allowed_modules = get_option('insurance_crm_license_modules', array());
+        
+        error_log('License Manager: Checking view parameter: ' . $view_parameter);
+        error_log('License Manager: Allowed modules: ' . implode(', ', $allowed_modules));
+        
+        // Get module mappings from server (cached)
+        $module_mappings = $this->get_module_view_mappings();
+        
+        error_log('License Manager: Available module mappings: ' . print_r($module_mappings, true));
+        
+        // Check if any allowed module has this view parameter
+        foreach ($allowed_modules as $module_slug) {
+            if (isset($module_mappings[$module_slug]) && 
+                $module_mappings[$module_slug] === $view_parameter) {
+                error_log('License Manager: View parameter allowed via module: ' . $module_slug);
+                return true;
+            }
+        }
+        
+        error_log('License Manager: View parameter not allowed: ' . $view_parameter);
+        return false;
+    }
+    
+    /**
+     * Force refresh module mappings cache
+     */
+    public function refresh_module_mappings() {
+        delete_transient('insurance_crm_module_mappings');
+        error_log('License Manager: Manually refreshing module mappings cache');
+        return $this->get_module_view_mappings();
+    }
+    
+    /**
+     * Get current module mappings for debugging
+     */
+    public function get_current_module_mappings() {
+        return $this->get_module_view_mappings();
+    }
+    
+    /**
+     * Get module to view parameter mappings from server
+     * 
+     * @return array Mapping of module slug to view parameter
+     */
+    private function get_module_view_mappings() {
+        // Check cache first (cache for 1 hour)
+        $cache_key = 'insurance_crm_module_mappings';
+        $cached_mappings = get_transient($cache_key);
+        
+        if ($cached_mappings !== false) {
+            error_log('License Manager: Using cached module mappings: ' . print_r($cached_mappings, true));
+            return $cached_mappings;
+        }
+        
+        // Fetch from server
+        $mappings = array();
+        
+        if ($this->license_api) {
+            error_log('License Manager: Fetching fresh module mappings from server');
+            $modules_data = $this->license_api->get_modules();
+            
+            if (is_array($modules_data)) {
+                // Handle both success response and legacy format
+                $modules_array = isset($modules_data['modules']) ? $modules_data['modules'] : array();
+                
+                if (!empty($modules_array) && is_array($modules_array)) {
+                    error_log('License Manager: Processing ' . count($modules_array) . ' modules from server');
+                    foreach ($modules_array as $module) {
+                        if (!empty($module['slug']) && !empty($module['view_parameter'])) {
+                            $mappings[$module['slug']] = $module['view_parameter'];
+                            error_log('License Manager: Mapped ' . $module['slug'] . ' -> ' . $module['view_parameter']);
+                        } else {
+                            error_log('License Manager: Skipping module with missing data: ' . print_r($module, true));
+                        }
+                    }
+                } else {
+                    error_log('License Manager: No modules array found in response');
+                    if (isset($modules_data['error'])) {
+                        error_log('License Manager: Modules API error: ' . $modules_data['error']);
+                    }
+                }
+            } else {
+                error_log('License Manager: Invalid modules data received (not array)');
+            }
+        } else {
+            error_log('License Manager: No license API instance available');
+        }
+        
+        // Add fallback mappings for common modules if server doesn't provide them
+        $fallback_mappings = array(
+            'sale_opportunities' => 'sale_opportunities',
+            'sales-opportunities' => 'sale_opportunities', // Handle legacy format
+            'dashboard' => 'dashboard',
+            'customers' => 'customers',
+            'policies' => 'policies',
+            'quotes' => 'quotes',
+            'tasks' => 'tasks',
+            'reports' => 'reports',
+            'data_transfer' => 'data-transfer'
+        );
+        
+        // Merge server mappings with fallback mappings (server takes precedence)
+        $mappings = array_merge($fallback_mappings, $mappings);
+        
+        error_log('License Manager: Final mappings (including fallbacks): ' . print_r($mappings, true));
+        
+        // Cache the mappings for 1 hour (even if empty to prevent repeated failed requests)
+        set_transient($cache_key, $mappings, HOUR_IN_SECONDS);
+        error_log('License Manager: Cached ' . count($mappings) . ' module mappings');
+        
+        return $mappings;
+    }
+    
+
 
     /**
      * Get license information for display
@@ -690,6 +985,7 @@ class Insurance_CRM_License_Manager {
             'expiry' => get_option('insurance_crm_license_expiry', ''),
             'user_limit' => get_option('insurance_crm_license_user_limit', 5),
             'modules' => get_option('insurance_crm_license_modules', array()),
+            'licensed_modules' => $this->get_licensed_modules(), // Add detailed modules
             'last_check' => get_option('insurance_crm_license_last_check', ''),
             'current_users' => $this->get_current_user_count(),
             'in_grace_period' => $this->is_in_grace_period(),
@@ -697,6 +993,225 @@ class Insurance_CRM_License_Manager {
             'expiring_soon' => $this->is_license_expiring_soon(3),
             'days_until_expiry' => $this->get_days_until_expiry()
         );
+    }
+
+    /**
+     * Get licensed modules with detailed information
+     * 
+     * @return array Licensed modules with details
+     */
+    public function get_licensed_modules() {
+        // Get module slugs from license
+        $module_slugs = get_option('insurance_crm_license_modules', array());
+        
+        error_log('License Manager: Raw licensed modules option: ' . print_r($module_slugs, true));
+        
+        if (empty($module_slugs) || !is_array($module_slugs)) {
+            error_log('License Manager: No licensed module slugs found or invalid format');
+            
+            // Try to refresh license data to get latest modules
+            if ($this->license_api) {
+                error_log('License Manager: Attempting to refresh license data to get modules');
+                $license_key = get_option('insurance_crm_license_key', '');
+                if (!empty($license_key)) {
+                    $validation_result = $this->license_api->validate_license($license_key);
+                    if (isset($validation_result['modules']) && is_array($validation_result['modules'])) {
+                        $module_slugs = $validation_result['modules'];
+                        update_option('insurance_crm_license_modules', $module_slugs);
+                        error_log('License Manager: Retrieved modules from license validation: ' . implode(', ', $module_slugs));
+                    }
+                }
+            }
+            
+            // If still no modules, try to get from backend if available
+            if (empty($module_slugs) || !is_array($module_slugs)) {
+                error_log('License Manager: Attempting to get modules from backend admin interface');
+                $backend_modules = $this->get_backend_licensed_modules();
+                if (!empty($backend_modules)) {
+                    $module_slugs = array_column($backend_modules, 'slug');
+                    update_option('insurance_crm_license_modules', $module_slugs);
+                    error_log('License Manager: Retrieved modules from backend: ' . implode(', ', $module_slugs));
+                }
+            }
+            
+            // Enhanced fallback: try to get modules from server API directly
+            if (empty($module_slugs) || !is_array($module_slugs)) {
+                error_log('License Manager: Attempting direct API call to get licensed modules');
+                if ($this->license_api) {
+                    $license_key = get_option('insurance_crm_license_key', '');
+                    if (!empty($license_key)) {
+                        // Try direct license info call
+                        $license_info = $this->license_api->get_license_info($license_key);
+                        if (isset($license_info['data']['modules']) && is_array($license_info['data']['modules'])) {
+                            $module_slugs = $license_info['data']['modules'];
+                            update_option('insurance_crm_license_modules', $module_slugs);
+                            error_log('License Manager: Retrieved modules from direct license info: ' . implode(', ', $module_slugs));
+                        }
+                    }
+                }
+            }
+            
+            // If still no modules, return empty array
+            if (empty($module_slugs) || !is_array($module_slugs)) {
+                error_log('License Manager: Still no licensed modules after all refresh attempts');
+                return array();
+            }
+        }
+        
+        error_log('License Manager: Licensed module slugs: ' . implode(', ', $module_slugs));
+        
+        // Get module mappings (view parameters) with retry logic
+        $module_mappings = $this->get_module_view_mappings();
+        
+        // Get available modules from server for detailed information with error handling
+        $available_modules = array();
+        if ($this->license_api) {
+            error_log('License Manager: Fetching detailed module information from server');
+            $modules_response = $this->license_api->get_modules();
+            
+            if (isset($modules_response['error'])) {
+                error_log('License Manager: Server API error for modules: ' . $modules_response['error']);
+            } else if (isset($modules_response['modules']) && is_array($modules_response['modules'])) {
+                foreach ($modules_response['modules'] as $module) {
+                    if (isset($module['slug'])) {
+                        $available_modules[$module['slug']] = $module;
+                        error_log('License Manager: Server module available: ' . $module['slug'] . ' (' . ($module['name'] ?? 'Unknown') . ')');
+                    }
+                }
+                error_log('License Manager: Retrieved ' . count($available_modules) . ' modules from server');
+            } else {
+                error_log('License Manager: Invalid or empty modules response from server: ' . print_r($modules_response, true));
+            }
+        } else {
+            error_log('License Manager: No license API instance available for fetching module details');
+        }
+        
+        // Build licensed modules with details and fallback data
+        $licensed_modules = array();
+        foreach ($module_slugs as $slug) {
+            // Enhanced default module names
+            $default_names = array(
+                'dashboard' => 'Dashboard',
+                'customers' => 'Müşteri Yönetimi',
+                'policies' => 'Poliçe Yönetimi',
+                'quotes' => 'Teklif Yönetimi',
+                'tasks' => 'Görev Yönetimi',
+                'reports' => 'Raporlar',
+                'data_transfer' => 'Veri Aktarımı',
+                'sale_opportunities' => 'Satış Fırsatları',
+                'sales_opportunities' => 'Satış Fırsatları',
+                'accounting' => 'Muhasebe',
+                'hr' => 'İnsan Kaynakları'
+            );
+            
+            $default_descriptions = array(
+                'dashboard' => 'Ana kontrol paneli ve genel bakış',
+                'customers' => 'Müşteri bilgilerini yönetme ve takip etme',
+                'policies' => 'Sigorta poliçelerini yönetme',
+                'quotes' => 'Sigorta tekliflerini hazırlama ve yönetme',
+                'tasks' => 'Görevleri takip etme ve yönetme',
+                'reports' => 'Detaylı raporlar ve analizler',
+                'data_transfer' => 'Veri içe/dışa aktarım işlemleri',
+                'sale_opportunities' => 'Satış fırsatlarını takip ve yönetme',
+                'sales_opportunities' => 'Satış fırsatlarını takip ve yönetme',
+                'accounting' => 'Muhasebe işlemleri ve mali raporlar',
+                'hr' => 'İnsan kaynakları yönetimi'
+            );
+            
+            $module_info = array(
+                'slug' => $slug,
+                'name' => isset($default_names[$slug]) ? $default_names[$slug] : ucfirst(str_replace(array('-', '_'), ' ', $slug)),
+                'view_parameter' => isset($module_mappings[$slug]) ? $module_mappings[$slug] : $slug,
+                'description' => isset($default_descriptions[$slug]) ? $default_descriptions[$slug] : '',
+                'category' => 'general',
+                'status' => 'active'
+            );
+            
+            // Enhance with server data if available
+            if (isset($available_modules[$slug])) {
+                $server_module = $available_modules[$slug];
+                $module_info['name'] = $server_module['name'] ?? $module_info['name'];
+                $module_info['description'] = $server_module['description'] ?? $module_info['description'];
+                $module_info['category'] = $server_module['category'] ?? 'general';
+                $module_info['id'] = $server_module['id'] ?? null;
+                error_log('License Manager: Enhanced module with server data: ' . $slug);
+            } else {
+                error_log('License Manager: Using fallback data for module: ' . $slug);
+            }
+            
+            $licensed_modules[] = $module_info;
+            error_log('License Manager: Licensed module details - ' . $module_info['name'] . ' (' . $slug . ')');
+        }
+        
+        error_log('License Manager: Retrieved ' . count($licensed_modules) . ' licensed modules with details');
+        return $licensed_modules;
+    }
+
+    /**
+     * Get licensed modules from backend admin interface
+     * This method is specifically for client-side backend admin panel integration
+     * 
+     * @return array Licensed modules from backend
+     */
+    public function get_backend_licensed_modules() {
+        error_log('License Manager: Attempting to retrieve modules from backend admin interface');
+        
+        // Check if we're in admin context and can access backend functionality
+        if (!is_admin()) {
+            error_log('License Manager: Not in admin context, cannot access backend modules');
+            return array();
+        }
+        
+        // Try to get modules from the current license validation
+        $license_key = get_option('insurance_crm_license_key', '');
+        if (empty($license_key)) {
+            error_log('License Manager: No license key available for backend module retrieval');
+            return array();
+        }
+        
+        // Get all available modules from server and match with license
+        $backend_modules = array();
+        if ($this->license_api) {
+            $modules_response = $this->license_api->get_modules();
+            
+            if (isset($modules_response['modules']) && is_array($modules_response['modules'])) {
+                $available_modules = $modules_response['modules'];
+                
+                // Get current license info to see which modules are allowed
+                $license_info = $this->license_api->get_license_info($license_key);
+                $allowed_module_slugs = array();
+                
+                if (isset($license_info['modules']) && is_array($license_info['modules'])) {
+                    $allowed_module_slugs = $license_info['modules'];
+                } else if (isset($license_info['success']) && $license_info['success'] && isset($license_info['data']['modules'])) {
+                    $allowed_module_slugs = $license_info['data']['modules'];
+                }
+                
+                error_log('License Manager: Backend allowed modules: ' . implode(', ', $allowed_module_slugs));
+                
+                // Filter available modules to only licensed ones
+                foreach ($available_modules as $module) {
+                    if (isset($module['slug']) && in_array($module['slug'], $allowed_module_slugs)) {
+                        $backend_modules[] = array(
+                            'slug' => $module['slug'],
+                            'name' => $module['name'] ?? ucfirst(str_replace(array('-', '_'), ' ', $module['slug'])),
+                            'description' => $module['description'] ?? '',
+                            'view_parameter' => $module['view_parameter'] ?? $module['slug'],
+                            'category' => $module['category'] ?? 'general',
+                            'status' => 'active'
+                        );
+                        error_log('License Manager: Added backend licensed module: ' . $module['slug']);
+                    }
+                }
+            } else {
+                error_log('License Manager: Invalid or empty modules response from backend API');
+            }
+        } else {
+            error_log('License Manager: No license API instance available for backend module retrieval');
+        }
+        
+        error_log('License Manager: Retrieved ' . count($backend_modules) . ' modules from backend admin interface');
+        return $backend_modules;
     }
 
     /**

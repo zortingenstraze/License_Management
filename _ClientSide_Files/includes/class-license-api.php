@@ -475,4 +475,85 @@ class Insurance_CRM_License_API {
         
         return $results;
     }
+    
+    /**
+     * Get available modules from license server
+     * 
+     * @return array Modules data
+     */
+    public function get_modules() {
+        $url = rtrim($this->license_server_url, '/') . '/wp-json/balkay-license/v1/modules';
+        
+        if ($this->debug_mode) {
+            error_log('License API: Getting modules from: ' . $url);
+        }
+        
+        $args = array(
+            'method' => 'GET',
+            'timeout' => $this->timeout,
+            'headers' => array(
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'Insurance-CRM-License-Client/1.0'
+            ),
+            'sslverify' => false // For development/testing
+        );
+        
+        $response = wp_remote_request($url, $args);
+        
+        if (is_wp_error($response)) {
+            if ($this->debug_mode) {
+                error_log('License API: Modules request failed: ' . $response->get_error_message());
+            }
+            return array('modules' => array(), 'error' => $response->get_error_message());
+        }
+        
+        $response_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        if ($response_code !== 200) {
+            if ($this->debug_mode) {
+                error_log('License API: Modules request returned code: ' . $response_code);
+                error_log('License API: Response body: ' . $body);
+            }
+            return array('modules' => array(), 'error' => "HTTP $response_code");
+        }
+        
+        $data = json_decode($body, true);
+        
+        if (!is_array($data)) {
+            if ($this->debug_mode) {
+                error_log('License API: Invalid modules response: ' . $body);
+            }
+            return array('modules' => array(), 'error' => 'Invalid JSON response');
+        }
+        
+        // Handle both old and new response formats
+        if (isset($data['success']) && $data['success'] && isset($data['modules'])) {
+            // New format with success flag
+            $modules_array = $data['modules'];
+        } elseif (isset($data['modules'])) {
+            // Legacy format
+            $modules_array = $data['modules'];
+        } else {
+            // No modules key found
+            if ($this->debug_mode) {
+                error_log('License API: No modules key found in response');
+            }
+            return array('modules' => array(), 'error' => 'No modules data in response');
+        }
+        
+        if ($this->debug_mode) {
+            $module_count = count($modules_array);
+            error_log('License API: Successfully retrieved ' . $module_count . ' modules');
+            if (is_array($modules_array)) {
+                foreach ($modules_array as $module) {
+                    if (isset($module['name']) && isset($module['slug'])) {
+                        error_log('License API: Module - ' . $module['name'] . ' (slug: ' . $module['slug'] . ')');
+                    }
+                }
+            }
+        }
+        
+        return array('modules' => $modules_array, 'success' => true);
+    }
 }

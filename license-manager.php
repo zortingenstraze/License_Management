@@ -76,10 +76,16 @@ class License_Manager_Plugin {
      */
     private function load_dependencies() {
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-database.php';
+        require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-modules.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-admin.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-api.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-customer.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-license.php';
+        
+        // Load extended API endpoints
+        if (file_exists(LICENSE_MANAGER_PLUGIN_DIR . 'api/endpoints/modules.php')) {
+            require_once LICENSE_MANAGER_PLUGIN_DIR . 'api/endpoints/modules.php';
+        }
     }
     
     /**
@@ -161,6 +167,9 @@ class License_Manager_Plugin {
         // Initialize database
         $database = new License_Manager_Database();
         
+        // Initialize modules manager
+        new License_Manager_Modules();
+        
         // Initialize admin interface
         if (is_admin()) {
             new License_Manager_Admin();
@@ -174,6 +183,12 @@ class License_Manager_Plugin {
         // Initialize API endpoints (with enhanced reliability)
         $api = new License_Manager_API();
         
+        // Initialize extended modules API if available
+        if (class_exists('License_Manager_Modules_API')) {
+            new License_Manager_Modules_API();
+            error_log("BALKAy License: Extended modules API initialized");
+        }
+        
         // Force aggressive rewrite rule management
         $this->manage_rewrite_rules();
         
@@ -183,6 +198,9 @@ class License_Manager_Plugin {
         
         // Add hook to verify routes are working after init
         add_action('wp_loaded', array($this, 'verify_and_fix_routes'), 99);
+        
+        // Add admin hook for module debugging
+        add_action('admin_init', array($this, 'debug_and_fix_modules'));
     }
     
     /**
@@ -288,6 +306,61 @@ class License_Manager_Plugin {
             if (get_option($key) === false) {
                 add_option($key, $value);
             }
+        }
+    }
+    
+    /**
+     * Debug and fix module management issues
+     * Called via admin URL: /wp-admin/admin.php?page=license-manager&debug_modules=1
+     */
+    public function debug_and_fix_modules() {
+        if (!current_user_can('manage_license_manager')) {
+            return;
+        }
+        
+        if (isset($_GET['debug_modules']) && $_GET['debug_modules'] == '1') {
+            error_log('BALKAy License: Starting module debug and fix process');
+            
+            $database = new License_Manager_Database();
+            
+            // 1. Force refresh default modules
+            error_log('BALKAy License: Refreshing default modules');
+            $created = $database->refresh_default_modules();
+            
+            // 2. Clear all caches
+            error_log('BALKAy License: Clearing all caches');
+            wp_cache_flush();
+            delete_transient('insurance_crm_module_mappings');
+            clean_taxonomy_cache('lm_modules');
+            
+            // 3. Test module retrieval
+            error_log('BALKAy License: Testing module retrieval');
+            $modules = $database->get_available_modules();
+            error_log('BALKAy License: Retrieved ' . count($modules) . ' modules');
+            
+            // 4. Test specific module (sale_opportunities)
+            $sale_opportunities = null;
+            foreach ($modules as $module) {
+                if ($module->slug === 'sale_opportunities') {
+                    $sale_opportunities = $module;
+                    break;
+                }
+            }
+            
+            if ($sale_opportunities) {
+                error_log('BALKAy License: Found sale_opportunities module - view_parameter: ' . $sale_opportunities->view_parameter);
+            } else {
+                error_log('BALKAy License: sale_opportunities module NOT FOUND');
+            }
+            
+            // 5. Force rewrite rules flush
+            flush_rewrite_rules(true);
+            
+            wp_redirect(add_query_arg(array(
+                'page' => 'license-manager',
+                'message' => 'modules_debug_complete'
+            ), admin_url('admin.php')));
+            exit;
         }
     }
 }

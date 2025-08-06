@@ -490,3 +490,163 @@
 .payment-tabs .tab-content.active {
     display: block;
 }
+
+/* Modules Management Styles */
+.modules-list {
+    margin-top: 20px;
+}
+
+.modules-list .wp-list-table {
+    border: 1px solid #ddd;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.modules-list .wp-list-table th {
+    background: #f9f9f9;
+    border-bottom: 1px solid #ddd;
+    font-weight: 600;
+}
+
+.modules-list .wp-list-table td {
+    vertical-align: middle;
+}
+
+.modules-list .wp-list-table code {
+    background: #f1f1f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+.modules-list .button.button-link-delete {
+    color: #a00;
+}
+
+.modules-list .button.button-link-delete:hover {
+    color: #dc3232;
+}
+
+/* Module form styles */
+.module-form .form-table th {
+    width: 200px;
+    padding-left: 0;
+}
+
+.module-form .required {
+    color: #dc3232;
+}
+
+.module-form .description {
+    font-style: italic;
+    color: #666;
+    margin-top: 5px;
+}
+
+/* Module categories with colors */
+.module-category-core {
+    color: #0073aa;
+    font-weight: 600;
+}
+
+.module-category-management {
+    color: #46b450;
+    font-weight: 600;
+}
+
+.module-category-sales {
+    color: #ffb900;
+    font-weight: 600;
+}
+
+.module-category-analytics {
+    color: #9b59b6;
+    font-weight: 600;
+}
+
+.module-category-productivity {
+    color: #00a0d2;
+    font-weight: 600;
+}
+
+.module-category-tools {
+    color: #666;
+    font-weight: 600;
+}
+
+.module-category-custom {
+    color: #dc3232;
+    font-weight: 600;
+}
+
+/* Module access denied styles */
+.module-access-denied {
+    background: #fff;
+    border-left: 4px solid #dc3232;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+    margin: 20px 0;
+    padding: 20px;
+}
+
+.module-access-denied h2 {
+    color: #dc3232;
+    margin-top: 0;
+}
+
+.module-access-denied .description {
+    color: #666;
+    line-height: 1.6;
+}
+
+/* Module status indicators */
+.module-status-active {
+    color: #46b450;
+}
+
+.module-status-inactive {
+    color: #dc3232;
+}
+
+.module-status-restricted {
+    color: #ffb900;
+}
+
+/* Responsive design for modules */
+@media (max-width: 768px) {
+    .modules-list .wp-list-table,
+    .modules-list .wp-list-table tbody,
+    .modules-list .wp-list-table th,
+    .modules-list .wp-list-table td,
+    .modules-list .wp-list-table tr {
+        display: block;
+    }
+    
+    .modules-list .wp-list-table thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+    
+    .modules-list .wp-list-table tr {
+        border: 1px solid #ccc;
+        margin-bottom: 10px;
+        padding: 10px;
+    }
+    
+    .modules-list .wp-list-table td {
+        border: none;
+        border-bottom: 1px solid #eee;
+        position: relative;
+        padding-left: 50% !important;
+        text-align: left;
+    }
+    
+    .modules-list .wp-list-table td:before {
+        content: attr(data-label) ": ";
+        position: absolute;
+        left: 6px;
+        width: 45%;
+        padding-right: 10px;
+        white-space: nowrap;
+        font-weight: bold;
+    }
+}

@@ -172,8 +172,17 @@ class License_Manager_API {
         
         error_log("BALKAy License API: /test registration result: " . ($test_result ? 'SUCCESS' : 'FAILED'));
         
+        // Modules endpoint
+        $modules_result = register_rest_route($this->namespace, '/modules', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_modules'),
+            'permission_callback' => '__return_true', // Allow public access for client-side checking
+        ));
+        
+        error_log("BALKAy License API: /modules registration result: " . ($modules_result ? 'SUCCESS' : 'FAILED'));
+        
         // Log if all routes registered successfully
-        if ($validate_license_result && $validate_result && $license_info_result && $check_status_result && $test_result) {
+        if ($validate_license_result && $validate_result && $license_info_result && $check_status_result && $test_result && $modules_result) {
             error_log("BALKAy License API: All REST routes registered successfully for namespace: " . $this->namespace);
         } else {
             error_log("BALKAy License API: Some routes failed to register for namespace: " . $this->namespace);
@@ -198,7 +207,10 @@ class License_Manager_API {
             $expected_routes = array(
                 '/' . $this->namespace . '/validate_license',
                 '/' . $this->namespace . '/validate',
-                '/' . $this->namespace . '/test'
+                '/' . $this->namespace . '/license_info',
+                '/' . $this->namespace . '/check_status',
+                '/' . $this->namespace . '/test',
+                '/' . $this->namespace . '/modules'
             );
             
             foreach ($expected_routes as $route) {
@@ -803,6 +815,7 @@ class License_Manager_API {
             foreach ($modules as $module) {
                 $module_slugs[] = $module->slug;
             }
+            error_log("BALKAy License API: Found modules from taxonomy: " . implode(', ', $module_slugs));
         }
         
         // If no modules from taxonomy, try meta fallback
@@ -810,13 +823,31 @@ class License_Manager_API {
             $modules_meta = get_post_meta($license->ID, '_modules', true);
             if (is_array($modules_meta)) {
                 $module_slugs = $modules_meta;
+                error_log("BALKAy License API: Found modules from meta: " . implode(', ', $module_slugs));
             }
         }
         
         // If still no modules assigned, use default
         if (empty($module_slugs)) {
             $module_slugs = get_option('license_manager_default_modules', array('dashboard', 'customers', 'policies', 'quotes', 'tasks', 'reports', 'data_transfer'));
+            error_log("BALKAy License API: Using default modules: " . implode(', ', $module_slugs));
         }
+        
+        // Handle backward compatibility for module name changes
+        $module_compatibility_map = array(
+            'sales-opportunities' => 'sale_opportunities',
+            'sales_opportunities' => 'sale_opportunities',
+            'data-transfer' => 'data_transfer'
+        );
+        
+        foreach ($module_slugs as $key => $module_slug) {
+            if (isset($module_compatibility_map[$module_slug])) {
+                $module_slugs[$key] = $module_compatibility_map[$module_slug];
+                error_log("BALKAy License API: Converted module '$module_slug' to '" . $module_compatibility_map[$module_slug] . "'");
+            }
+        }
+        
+        error_log("BALKAy License API: Final modules for license " . $license_key . ": " . implode(', ', $module_slugs));
         
         return array(
             'id' => $license->ID,
@@ -1245,5 +1276,42 @@ class License_Manager_API {
             'message' => $this->get_status_message($status)
         ));
         exit;
+    }
+    
+    /**
+     * Get modules endpoint
+     */
+    public function get_modules($request) {
+        error_log("BALKAy License API: get_modules endpoint called");
+        
+        $database = new License_Manager_Database();
+        $modules = $database->get_available_modules();
+        
+        error_log("BALKAy License API: Retrieved " . count($modules) . " modules from database");
+        
+        $response_data = array();
+        foreach ($modules as $module) {
+            $module_data = array(
+                'id' => $module->term_id,
+                'name' => $module->name,
+                'slug' => $module->slug,
+                'view_parameter' => $module->view_parameter,
+                'description' => $module->description,
+                'category' => $module->category
+            );
+            $response_data[] = $module_data;
+            
+            error_log("BALKAy License API: Module - " . $module->name . " (slug: " . $module->slug . ", view: " . $module->view_parameter . ")");
+        }
+        
+        $response = array(
+            'success' => true,
+            'modules' => $response_data,
+            'total' => count($response_data)
+        );
+        
+        error_log("BALKAy License API: Returning response with " . count($response_data) . " modules");
+        
+        return new WP_REST_Response($response, 200);
     }
 }
