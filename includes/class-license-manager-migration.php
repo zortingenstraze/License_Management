@@ -255,7 +255,7 @@ class License_Manager_Migration {
             ),
             array(
                 'setting_key' => 'restricted_modules_on_limit_exceeded',
-                'setting_value' => '["license-management", "customer-representatives"]',
+                'setting_value' => '["license-management", "customer-representatives", "license-restriction", "all_personnel", "personnel", "users"]',
                 'setting_type' => 'json',
                 'description' => 'Modules available when user limit is exceeded'
             )
