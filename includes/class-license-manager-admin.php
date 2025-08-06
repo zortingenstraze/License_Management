@@ -12,9 +12,19 @@ if (!defined('ABSPATH')) {
 class License_Manager_Admin {
     
     /**
+     * Database V2 instance
+     */
+    private $database_v2;
+    
+    /**
      * Constructor
      */
     public function __construct() {
+        // Initialize new database if available
+        if (class_exists('License_Manager_Database_V2')) {
+            $this->database_v2 = new License_Manager_Database_V2();
+        }
+        
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'init_admin'));
         add_action('wp_dashboard_setup', array($this, 'add_dashboard_widgets'));
@@ -32,6 +42,13 @@ class License_Manager_Admin {
         add_action('admin_post_license_manager_delete_license', array($this, 'handle_delete_license'));
         add_action('admin_post_license_manager_delete_package', array($this, 'handle_delete_package'));
         add_action('admin_post_license_manager_delete_payment', array($this, 'handle_delete_payment'));
+    }
+    
+    /**
+     * Check if new database structure should be used
+     */
+    private function use_new_database() {
+        return $this->database_v2 && $this->database_v2->is_new_structure_available();
     }
     
     /**
@@ -1206,10 +1223,16 @@ class License_Manager_Admin {
             echo '<div class="notice notice-success"><p>' . __('Ayarlar kaydedildi.', 'license-manager') . '</p></div>';
         }
         
+        // Handle migration actions
+        if (isset($_POST['force_migration']) && wp_verify_nonce($_POST['_wpnonce'], 'license_manager_settings')) {
+            $this->handle_force_migration();
+        }
+        
         $debug_mode = get_option('license_manager_debug_mode', false);
         $default_duration = get_option('license_manager_default_license_duration', 30);
         $grace_period = get_option('license_manager_grace_period', 7);
         $default_user_limit = get_option('license_manager_default_user_limit', 5);
+        $db_version = get_option('license_manager_db_version', '1.0.0');
         
         ?>
         <div class="wrap">
@@ -1251,8 +1274,63 @@ class License_Manager_Admin {
                 
                 <?php submit_button(__('Değişiklikleri Kaydet', 'license-manager')); ?>
             </form>
+            
+            <hr>
+            
+            <h2><?php _e('Veritabanı Yönetimi', 'license-manager'); ?></h2>
+            <div class="card">
+                <h3><?php _e('Yeni Veritabanı Yapısına Geçiş', 'license-manager'); ?></h3>
+                <p><?php _e('Mevcut WordPress post türlerinden yeni özel veritabanı tablolarına geçiş.', 'license-manager'); ?></p>
+                
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><?php _e('Mevcut Veritabanı Sürümü', 'license-manager'); ?></th>
+                        <td>
+                            <strong><?php echo esc_html($db_version); ?></strong>
+                            <?php if ($this->use_new_database()): ?>
+                                <span style="color: green;">✓ <?php _e('Yeni yapı aktif', 'license-manager'); ?></span>
+                            <?php else: ?>
+                                <span style="color: orange;">⚠ <?php _e('Eski yapı kullanılıyor', 'license-manager'); ?></span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                </table>
+                
+                <form method="post" action="" style="margin-top: 20px;">
+                    <?php wp_nonce_field('license_manager_settings'); ?>
+                    <?php if (!$this->use_new_database()): ?>
+                        <p class="description" style="margin-bottom: 15px;">
+                            <?php _e('Yeni veritabanı yapısına geçmek için aşağıdaki butonu kullanın. Bu işlem mevcut verilerinizi yeni tablolara aktaracak ve eski yapıları temizleyecektir.', 'license-manager'); ?>
+                        </p>
+                        <input type="submit" name="force_migration" class="button button-primary" value="<?php _e('Yeni Yapıya Geç', 'license-manager'); ?>" 
+                               onclick="return confirm('<?php _e('Bu işlem mevcut verilerinizi yeni veritabanı yapısına aktaracak. Devam etmek istediğinizden emin misiniz?', 'license-manager'); ?>');" />
+                    <?php else: ?>
+                        <p style="color: green;">
+                            <strong><?php _e('✓ Yeni veritabanı yapısı aktif ve kullanılıyor.', 'license-manager'); ?></strong>
+                        </p>
+                    <?php endif; ?>
+                </form>
+            </div>
         </div>
         <?php
+    }
+    
+    /**
+     * Handle force migration request
+     */
+    private function handle_force_migration() {
+        if (!current_user_can('manage_license_manager')) {
+            wp_die(__('Yetkisiz erişim.', 'license-manager'));
+        }
+        
+        try {
+            $migration = new License_Manager_Migration();
+            $migration->force_run_migration();
+            
+            echo '<div class="notice notice-success"><p>' . __('Veritabanı geçişi başarıyla tamamlandı! Tüm veriler yeni yapıya aktarıldı.', 'license-manager') . '</p></div>';
+        } catch (Exception $e) {
+            echo '<div class="notice notice-error"><p>' . sprintf(__('Geçiş sırasında hata oluştu: %s', 'license-manager'), esc_html($e->getMessage())) . '</p></div>';
+        }
     }
     
     /**

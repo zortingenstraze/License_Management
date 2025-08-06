@@ -118,7 +118,8 @@ class Insurance_CRM_Module_Validator {
             'customer-representatives',
             'all_personnel',
             'personnel',
-            'users'
+            'users',
+            'license-restriction'  // Allow access to restriction page itself
         );
     }
     

@@ -799,6 +799,36 @@ class Insurance_CRM_License_Manager {
 
         $allowed_modules = get_option('insurance_crm_license_modules', array());
         
+        // Try to get allowed modules from new database structure if available
+        if (class_exists('License_Manager_Database_V2')) {
+            $database_v2 = new License_Manager_Database_V2();
+            if ($database_v2->is_new_structure_available()) {
+                $license_key = get_option('insurance_crm_license_key', '');
+                if (!empty($license_key)) {
+                    $license = $database_v2->get_license_by_key($license_key);
+                    if ($license) {
+                        $modules = $database_v2->get_license_modules($license->id);
+                        $allowed_modules = array();
+                        
+                        foreach ($modules as $db_module) {
+                            $allowed_modules[] = $db_module->slug;
+                            // Also add view parameters for matching
+                            if (!empty($db_module->view_parameter)) {
+                                $allowed_modules[] = $db_module->view_parameter;
+                            }
+                        }
+                        
+                        error_log("License Manager: Got allowed modules from new database: " . implode(', ', $allowed_modules));
+                    }
+                }
+            }
+        }
+        
+        if (empty($allowed_modules)) {
+            // Fallback to options if new database doesn't have data
+            $allowed_modules = get_option('insurance_crm_license_modules', array());
+        }
+        
         error_log("License Manager: Allowed modules from license: " . implode(', ', $allowed_modules));
         
         // If no specific modules defined, allow all (when user limit not exceeded)
@@ -1023,6 +1053,18 @@ class Insurance_CRM_License_Manager {
      * @return array Licensed modules with details
      */
     public function get_licensed_modules() {
+        // First try to get modules from new database structure
+        if (class_exists('License_Manager_Database_V2')) {
+            $database_v2 = new License_Manager_Database_V2();
+            if ($database_v2->is_new_structure_available()) {
+                error_log('License Manager: Using new database structure for module retrieval');
+                return $this->get_licensed_modules_from_new_db($database_v2);
+            }
+        }
+        
+        // Fallback to old method if new database not available
+        error_log('License Manager: Falling back to old method for module retrieval');
+        
         // Get module slugs from license
         $module_slugs = get_option('insurance_crm_license_modules', array());
         
@@ -1166,6 +1208,45 @@ class Insurance_CRM_License_Manager {
         }
         
         error_log('License Manager: Retrieved ' . count($licensed_modules) . ' licensed modules with details');
+        return $licensed_modules;
+    }
+    
+    /**
+     * Get licensed modules from new database structure
+     */
+    private function get_licensed_modules_from_new_db($database_v2) {
+        $license_key = get_option('insurance_crm_license_key', '');
+        if (empty($license_key)) {
+            error_log('License Manager: No license key found for new database module retrieval');
+            return array();
+        }
+        
+        // Get license from new database
+        $license = $database_v2->get_license_by_key($license_key);
+        if (!$license) {
+            error_log('License Manager: License not found in new database structure');
+            return array();
+        }
+        
+        // Get modules for this license
+        $modules = $database_v2->get_license_modules($license->id);
+        
+        // Convert to the expected format for client-side
+        $licensed_modules = array();
+        foreach ($modules as $module) {
+            $licensed_modules[] = array(
+                'slug' => $module->slug,
+                'name' => $module->name,
+                'view_parameter' => $module->view_parameter ?: $module->slug,
+                'description' => $module->description ?: '',
+                'category' => $module->category ?: 'general',
+                'status' => $module->is_active ? 'active' : 'inactive',
+                'id' => $module->id
+            );
+            error_log('License Manager: New DB module - ' . $module->name . ' (' . $module->slug . ')');
+        }
+        
+        error_log('License Manager: Retrieved ' . count($licensed_modules) . ' licensed modules from new database');
         return $licensed_modules;
     }
 
@@ -1395,6 +1476,16 @@ class Insurance_CRM_License_Manager {
             return $server_modules;
         }
         
+        // Try to get from new database structure if available
+        if (class_exists('License_Manager_Database_V2')) {
+            $database_v2 = new License_Manager_Database_V2();
+            $db_modules = $database_v2->get_restricted_modules_on_limit_exceeded();
+            if (!empty($db_modules)) {
+                error_log("License Manager: Got restricted modules from new database: " . implode(', ', $db_modules));
+                return $db_modules;
+            }
+        }
+        
         // Fallback to hardcoded list based on problem statement requirements
         return array(
             'license-management',
@@ -1402,7 +1493,8 @@ class Insurance_CRM_License_Manager {
             'customer-representatives', 
             'all_personnel',
             'personnel',
-            'users'
+            'users',
+            'license-restriction'  // Allow access to restriction page itself
         );
     }
     
