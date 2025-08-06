@@ -1010,4 +1010,553 @@ class License_Manager_Database {
             error_log("BALKAy License: Failed to create sample license");
         }
     }
+    
+    // =====================================
+    // UNIFIED CRUD WRAPPER METHODS
+    // These methods check for new structure and use V2 when available
+    // =====================================
+    
+    /**
+     * Database V2 instance
+     */
+    private $db_v2;
+    
+    /**
+     * Get Database V2 instance
+     */
+    private function get_db_v2() {
+        if (!$this->db_v2) {
+            $this->db_v2 = new License_Manager_Database_V2();
+        }
+        return $this->db_v2;
+    }
+    
+    /**
+     * Check if new database structure is available
+     */
+    public function is_new_structure_available() {
+        return $this->get_db_v2()->is_new_structure_available();
+    }
+    
+    // =====================================
+    // CUSTOMER CRUD WRAPPER METHODS
+    // =====================================
+    
+    /**
+     * Get all customers
+     */
+    public function get_customers($limit = 20, $offset = 0, $search = '') {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_customers($limit, $offset, $search);
+        }
+        
+        // Fallback to post type method
+        $args = array(
+            'post_type' => 'lm_customer',
+            'posts_per_page' => $limit,
+            'offset' => $offset,
+            'post_status' => 'publish'
+        );
+        
+        if (!empty($search)) {
+            $args['s'] = $search;
+        }
+        
+        $posts = get_posts($args);
+        $customers = array();
+        
+        foreach ($posts as $post) {
+            $customer = new stdClass();
+            $customer->id = $post->ID;
+            $customer->name = $post->post_title;
+            $customer->email = get_post_meta($post->ID, '_email', true);
+            $customer->phone = get_post_meta($post->ID, '_phone', true);
+            $customer->website = get_post_meta($post->ID, '_website', true);
+            $customer->address = get_post_meta($post->ID, '_address', true);
+            $customer->allowed_domains = get_post_meta($post->ID, '_allowed_domains', true);
+            $customer->notes = $post->post_content;
+            $customer->created_at = $post->post_date;
+            $customer->updated_at = $post->post_modified;
+            $customers[] = $customer;
+        }
+        
+        return $customers;
+    }
+    
+    /**
+     * Get customer by ID
+     */
+    public function get_customer($customer_id) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_customer($customer_id);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($customer_id);
+        if (!$post || $post->post_type !== 'lm_customer') {
+            return null;
+        }
+        
+        $customer = new stdClass();
+        $customer->id = $post->ID;
+        $customer->name = $post->post_title;
+        $customer->email = get_post_meta($post->ID, '_email', true);
+        $customer->phone = get_post_meta($post->ID, '_phone', true);
+        $customer->website = get_post_meta($post->ID, '_website', true);
+        $customer->address = get_post_meta($post->ID, '_address', true);
+        $customer->allowed_domains = get_post_meta($post->ID, '_allowed_domains', true);
+        $customer->notes = $post->post_content;
+        $customer->created_at = $post->post_date;
+        $customer->updated_at = $post->post_modified;
+        
+        return $customer;
+    }
+    
+    /**
+     * Get customer by email
+     */
+    public function get_customer_by_email($email) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_customer_by_email($email);
+        }
+        
+        // Fallback to post type method
+        $posts = get_posts(array(
+            'post_type' => 'lm_customer',
+            'meta_query' => array(
+                array(
+                    'key' => '_email',
+                    'value' => $email,
+                    'compare' => '='
+                )
+            ),
+            'posts_per_page' => 1
+        ));
+        
+        if (empty($posts)) {
+            return null;
+        }
+        
+        return $this->get_customer($posts[0]->ID);
+    }
+    
+    /**
+     * Add new customer
+     */
+    public function add_customer($name, $email = '', $phone = '', $website = '', $address = '', $allowed_domains = '', $notes = '') {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->add_customer($name, $email, $phone, $website, $address, $allowed_domains, $notes);
+        }
+        
+        // Fallback to post type method
+        if (empty($name)) {
+            return new WP_Error('missing_name', 'Customer name is required');
+        }
+        
+        // Check if email already exists
+        if (!empty($email) && $this->get_customer_by_email($email)) {
+            return new WP_Error('email_exists', 'Customer with this email already exists');
+        }
+        
+        $post_id = wp_insert_post(array(
+            'post_type' => 'lm_customer',
+            'post_title' => sanitize_text_field($name),
+            'post_content' => sanitize_textarea_field($notes),
+            'post_status' => 'publish'
+        ));
+        
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+        
+        // Save metadata
+        if (!empty($email)) update_post_meta($post_id, '_email', sanitize_email($email));
+        if (!empty($phone)) update_post_meta($post_id, '_phone', sanitize_text_field($phone));
+        if (!empty($website)) update_post_meta($post_id, '_website', esc_url_raw($website));
+        if (!empty($address)) update_post_meta($post_id, '_address', sanitize_textarea_field($address));
+        if (!empty($allowed_domains)) update_post_meta($post_id, '_allowed_domains', sanitize_textarea_field($allowed_domains));
+        
+        return $post_id;
+    }
+    
+    /**
+     * Update customer
+     */
+    public function update_customer($customer_id, $data = array()) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->update_customer($customer_id, $data);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($customer_id);
+        if (!$post || $post->post_type !== 'lm_customer') {
+            return new WP_Error('customer_not_found', 'Customer not found');
+        }
+        
+        $update_post = array('ID' => $customer_id);
+        
+        if (isset($data['name'])) {
+            $update_post['post_title'] = sanitize_text_field($data['name']);
+        }
+        if (isset($data['notes'])) {
+            $update_post['post_content'] = sanitize_textarea_field($data['notes']);
+        }
+        
+        if (count($update_post) > 1) {
+            $result = wp_update_post($update_post);
+            if (is_wp_error($result)) {
+                return $result;
+            }
+        }
+        
+        // Update metadata
+        $meta_fields = array('email', 'phone', 'website', 'address', 'allowed_domains');
+        foreach ($meta_fields as $field) {
+            if (isset($data[$field])) {
+                $value = '';
+                switch ($field) {
+                    case 'email':
+                        $value = sanitize_email($data[$field]);
+                        break;
+                    case 'website':
+                        $value = esc_url_raw($data[$field]);
+                        break;
+                    case 'address':
+                    case 'allowed_domains':
+                        $value = sanitize_textarea_field($data[$field]);
+                        break;
+                    default:
+                        $value = sanitize_text_field($data[$field]);
+                }
+                update_post_meta($customer_id, '_' . $field, $value);
+            }
+        }
+        
+        return $customer_id;
+    }
+    
+    /**
+     * Delete customer
+     */
+    public function delete_customer($customer_id) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->delete_customer($customer_id);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($customer_id);
+        if (!$post || $post->post_type !== 'lm_customer') {
+            return new WP_Error('customer_not_found', 'Customer not found');
+        }
+        
+        // Check for related licenses
+        $licenses = get_posts(array(
+            'post_type' => 'lm_license',
+            'meta_query' => array(
+                array(
+                    'key' => '_customer_id',
+                    'value' => $customer_id,
+                    'compare' => '='
+                )
+            ),
+            'posts_per_page' => 1
+        ));
+        
+        if (!empty($licenses)) {
+            return new WP_Error('has_licenses', 'Cannot delete customer with existing licenses');
+        }
+        
+        $result = wp_delete_post($customer_id, true);
+        return $result !== false;
+    }
+    
+    // =====================================
+    // LICENSE CRUD WRAPPER METHODS
+    // =====================================
+    
+    /**
+     * Get all licenses
+     */
+    public function get_licenses($limit = 20, $offset = 0, $search = '', $status = '') {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_licenses($limit, $offset, $search, $status);
+        }
+        
+        // Fallback to post type method
+        $args = array(
+            'post_type' => 'lm_license',
+            'posts_per_page' => $limit,
+            'offset' => $offset,
+            'post_status' => 'publish'
+        );
+        
+        if (!empty($search)) {
+            $args['meta_query'] = array(
+                array(
+                    'key' => '_license_key',
+                    'value' => $search,
+                    'compare' => 'LIKE'
+                )
+            );
+        }
+        
+        if (!empty($status)) {
+            $args['tax_query'] = array(
+                array(
+                    'taxonomy' => 'lm_license_status',
+                    'field' => 'slug',
+                    'terms' => $status
+                )
+            );
+        }
+        
+        $posts = get_posts($args);
+        $licenses = array();
+        
+        foreach ($posts as $post) {
+            $license = $this->format_license_from_post($post);
+            $licenses[] = $license;
+        }
+        
+        return $licenses;
+    }
+    
+    /**
+     * Get license by ID
+     */
+    public function get_license($license_id) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_license($license_id);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($license_id);
+        if (!$post || $post->post_type !== 'lm_license') {
+            return null;
+        }
+        
+        return $this->format_license_from_post($post);
+    }
+    
+    /**
+     * Get license by key
+     */
+    public function get_license_by_key($license_key) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_license_by_key($license_key);
+        }
+        
+        // Fallback to post type method
+        $posts = get_posts(array(
+            'post_type' => 'lm_license',
+            'meta_query' => array(
+                array(
+                    'key' => '_license_key',
+                    'value' => $license_key,
+                    'compare' => '='
+                )
+            ),
+            'posts_per_page' => 1
+        ));
+        
+        if (empty($posts)) {
+            return null;
+        }
+        
+        return $this->format_license_from_post($posts[0]);
+    }
+    
+    /**
+     * Format license data from WordPress post
+     */
+    private function format_license_from_post($post) {
+        $license = new stdClass();
+        $license->id = $post->ID;
+        $license->license_key = get_post_meta($post->ID, '_license_key', true);
+        $license->customer_id = get_post_meta($post->ID, '_customer_id', true);
+        $license->status = get_post_meta($post->ID, '_status', true);
+        $license->license_type = get_post_meta($post->ID, '_license_type', true);
+        $license->package_id = get_post_meta($post->ID, '_package_id', true);
+        $license->user_limit = get_post_meta($post->ID, '_user_limit', true);
+        $license->expires_on = get_post_meta($post->ID, '_expires_on', true);
+        $license->allowed_domains = get_post_meta($post->ID, '_allowed_domains', true);
+        $license->last_check = get_post_meta($post->ID, '_last_check', true);
+        $license->notes = $post->post_content;
+        $license->created_at = $post->post_date;
+        $license->updated_at = $post->post_modified;
+        
+        // Get customer info if customer_id exists
+        if (!empty($license->customer_id)) {
+            $customer = $this->get_customer($license->customer_id);
+            if ($customer) {
+                $license->customer_name = $customer->name;
+                $license->customer_email = $customer->email;
+            }
+        }
+        
+        return $license;
+    }
+    
+    /**
+     * Add new license
+     */
+    public function add_license($customer_id, $license_key, $status = 'active', $license_type = 'yearly', $package_id = null, $user_limit = 5, $expires_on = null, $allowed_domains = '', $notes = '') {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->add_license($customer_id, $license_key, $status, $license_type, $package_id, $user_limit, $expires_on, $allowed_domains, $notes);
+        }
+        
+        // Fallback to post type method
+        if (empty($customer_id) || empty($license_key)) {
+            return new WP_Error('missing_fields', 'Customer ID and license key are required');
+        }
+        
+        // Check if license key already exists
+        if ($this->get_license_by_key($license_key)) {
+            return new WP_Error('license_exists', 'License key already exists');
+        }
+        
+        $post_id = wp_insert_post(array(
+            'post_type' => 'lm_license',
+            'post_title' => 'Lisans: ' . $license_key,
+            'post_content' => $notes,
+            'post_status' => 'publish'
+        ));
+        
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+        
+        // Save metadata
+        update_post_meta($post_id, '_license_key', $license_key);
+        update_post_meta($post_id, '_customer_id', $customer_id);
+        update_post_meta($post_id, '_status', $status);
+        update_post_meta($post_id, '_license_type', $license_type);
+        if ($package_id) update_post_meta($post_id, '_package_id', $package_id);
+        update_post_meta($post_id, '_user_limit', $user_limit);
+        if ($expires_on) update_post_meta($post_id, '_expires_on', $expires_on);
+        update_post_meta($post_id, '_allowed_domains', $allowed_domains);
+        
+        // Set taxonomies
+        wp_set_object_terms($post_id, $status, 'lm_license_status');
+        wp_set_object_terms($post_id, $license_type, 'lm_license_type');
+        
+        return $post_id;
+    }
+    
+    /**
+     * Update license
+     */
+    public function update_license($license_id, $data = array()) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->update_license($license_id, $data);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($license_id);
+        if (!$post || $post->post_type !== 'lm_license') {
+            return new WP_Error('license_not_found', 'License not found');
+        }
+        
+        $update_post = array('ID' => $license_id);
+        
+        if (isset($data['notes'])) {
+            $update_post['post_content'] = sanitize_textarea_field($data['notes']);
+        }
+        
+        if (count($update_post) > 1) {
+            $result = wp_update_post($update_post);
+            if (is_wp_error($result)) {
+                return $result;
+            }
+        }
+        
+        // Update metadata
+        $meta_fields = array('license_key', 'customer_id', 'status', 'license_type', 'package_id', 'user_limit', 'expires_on', 'allowed_domains');
+        foreach ($meta_fields as $field) {
+            if (isset($data[$field])) {
+                update_post_meta($license_id, '_' . $field, $data[$field]);
+                
+                // Update taxonomy for specific fields
+                if ($field === 'status') {
+                    wp_set_object_terms($license_id, $data[$field], 'lm_license_status');
+                } elseif ($field === 'license_type') {
+                    wp_set_object_terms($license_id, $data[$field], 'lm_license_type');
+                }
+            }
+        }
+        
+        return $license_id;
+    }
+    
+    /**
+     * Delete license
+     */
+    public function delete_license($license_id) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->delete_license($license_id);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($license_id);
+        if (!$post || $post->post_type !== 'lm_license') {
+            return new WP_Error('license_not_found', 'License not found');
+        }
+        
+        $result = wp_delete_post($license_id, true);
+        return $result !== false;
+    }
+    
+    /**
+     * Get dashboard statistics
+     */
+    public function get_dashboard_stats() {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->get_dashboard_stats();
+        }
+        
+        // Fallback to post type method
+        $stats = array();
+        
+        $stats['total_customers'] = wp_count_posts('lm_customer')->publish;
+        $stats['total_licenses'] = wp_count_posts('lm_license')->publish;
+        $stats['total_packages'] = wp_count_posts('lm_license_package')->publish;
+        $stats['total_payments'] = wp_count_posts('lm_payment')->publish;
+        
+        // Count active licenses
+        $active_licenses = get_posts(array(
+            'post_type' => 'lm_license',
+            'tax_query' => array(
+                array(
+                    'taxonomy' => 'lm_license_status',
+                    'field' => 'slug',
+                    'terms' => 'active'
+                )
+            ),
+            'posts_per_page' => -1
+        ));
+        $stats['active_licenses'] = count($active_licenses);
+        
+        // Count expired licenses
+        $expired_licenses = get_posts(array(
+            'post_type' => 'lm_license',
+            'tax_query' => array(
+                array(
+                    'taxonomy' => 'lm_license_status',
+                    'field' => 'slug',
+                    'terms' => 'expired'
+                )
+            ),
+            'posts_per_page' => -1
+        ));
+        $stats['expired_licenses'] = count($expired_licenses);
+        
+        // Count total modules
+        $modules = get_terms(array(
+            'taxonomy' => 'lm_modules',
+            'hide_empty' => false
+        ));
+        $stats['total_modules'] = is_array($modules) ? count($modules) : 0;
+        
+        return $stats;
+    }
 }

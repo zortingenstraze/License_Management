@@ -457,6 +457,841 @@ class License_Manager_Database_V2 {
         ));
     }
     
+    /**
+     * Get all customers with pagination
+     */
+    public function get_customers($limit = 20, $offset = 0, $search = '') {
+        if (!$this->is_new_structure_available()) {
+            return array();
+        }
+        
+        $where = '';
+        $params = array();
+        
+        if (!empty($search)) {
+            $where = "WHERE name LIKE %s OR email LIKE %s";
+            $search_term = '%' . $this->wpdb->esc_like($search) . '%';
+            $params = array($search_term, $search_term);
+        }
+        
+        $sql = "SELECT * FROM {$this->customers_table} $where ORDER BY created_at DESC LIMIT %d OFFSET %d";
+        $params[] = $limit;
+        $params[] = $offset;
+        
+        return $this->wpdb->get_results($this->wpdb->prepare($sql, $params));
+    }
+    
+    /**
+     * Add new customer
+     */
+    public function add_customer($name, $email = '', $phone = '', $website = '', $address = '', $allowed_domains = '', $notes = '') {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Validate required fields
+        if (empty($name)) {
+            return new WP_Error('missing_name', 'Customer name is required');
+        }
+        
+        // Check if email already exists (if provided)
+        if (!empty($email)) {
+            $existing = $this->get_customer_by_email($email);
+            if ($existing) {
+                return new WP_Error('email_exists', 'Customer with this email already exists');
+            }
+        }
+        
+        // Insert customer
+        $result = $this->wpdb->insert(
+            $this->customers_table,
+            array(
+                'name' => sanitize_text_field($name),
+                'email' => sanitize_email($email),
+                'phone' => sanitize_text_field($phone),
+                'website' => esc_url_raw($website),
+                'address' => sanitize_textarea_field($address),
+                'allowed_domains' => sanitize_textarea_field($allowed_domains),
+                'notes' => sanitize_textarea_field($notes)
+            ),
+            array('%s', '%s', '%s', '%s', '%s', '%s', '%s')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('insert_failed', 'Failed to insert customer: ' . $this->wpdb->last_error);
+        }
+        
+        return $this->wpdb->insert_id;
+    }
+    
+    /**
+     * Update existing customer
+     */
+    public function update_customer($customer_id, $data = array()) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Check if customer exists
+        $existing = $this->get_customer($customer_id);
+        if (!$existing) {
+            return new WP_Error('customer_not_found', 'Customer not found');
+        }
+        
+        // Prepare update data
+        $update_data = array();
+        $update_format = array();
+        
+        $allowed_fields = array('name', 'email', 'phone', 'website', 'address', 'allowed_domains', 'notes');
+        
+        foreach ($allowed_fields as $field) {
+            if (isset($data[$field])) {
+                switch ($field) {
+                    case 'name':
+                        $update_data[$field] = sanitize_text_field($data[$field]);
+                        break;
+                    case 'email':
+                        $update_data[$field] = sanitize_email($data[$field]);
+                        break;
+                    case 'website':
+                        $update_data[$field] = esc_url_raw($data[$field]);
+                        break;
+                    case 'address':
+                    case 'allowed_domains':
+                    case 'notes':
+                        $update_data[$field] = sanitize_textarea_field($data[$field]);
+                        break;
+                    default:
+                        $update_data[$field] = sanitize_text_field($data[$field]);
+                }
+                $update_format[] = '%s';
+            }
+        }
+        
+        if (empty($update_data)) {
+            return new WP_Error('no_data', 'No data to update');
+        }
+        
+        $update_data['updated_at'] = current_time('mysql');
+        $update_format[] = '%s';
+        
+        // Check email uniqueness if updating email
+        if (isset($update_data['email']) && !empty($update_data['email'])) {
+            $email_check = $this->wpdb->get_var($this->wpdb->prepare(
+                "SELECT id FROM {$this->customers_table} WHERE email = %s AND id != %d",
+                $update_data['email'], $customer_id
+            ));
+            if ($email_check) {
+                return new WP_Error('email_exists', 'Another customer with this email already exists');
+            }
+        }
+        
+        $result = $this->wpdb->update(
+            $this->customers_table,
+            $update_data,
+            array('id' => $customer_id),
+            $update_format,
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('update_failed', 'Failed to update customer: ' . $this->wpdb->last_error);
+        }
+        
+        return $customer_id;
+    }
+    
+    /**
+     * Delete customer
+     */
+    public function delete_customer($customer_id) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Check if customer exists
+        $customer = $this->get_customer($customer_id);
+        if (!$customer) {
+            return new WP_Error('customer_not_found', 'Customer not found');
+        }
+        
+        // Check if customer has licenses (prevent deletion if has active licenses)
+        $license_count = $this->wpdb->get_var($this->wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->licenses_table} WHERE customer_id = %d AND status = 'active'",
+            $customer_id
+        ));
+        
+        if ($license_count > 0) {
+            return new WP_Error('has_active_licenses', 'Cannot delete customer with active licenses');
+        }
+        
+        // Delete customer
+        $result = $this->wpdb->delete(
+            $this->customers_table,
+            array('id' => $customer_id),
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('delete_failed', 'Failed to delete customer: ' . $this->wpdb->last_error);
+        }
+        
+        return true;
+    }
+    
+    // =====================================
+    // LICENSE CRUD METHODS
+    // =====================================
+    
+    /**
+     * Get all licenses with pagination
+     */
+    public function get_licenses($limit = 20, $offset = 0, $search = '', $status = '') {
+        if (!$this->is_new_structure_available()) {
+            return array();
+        }
+        
+        $where_conditions = array();
+        $params = array();
+        
+        if (!empty($search)) {
+            $where_conditions[] = "(l.license_key LIKE %s OR c.name LIKE %s OR c.email LIKE %s)";
+            $search_term = '%' . $this->wpdb->esc_like($search) . '%';
+            $params[] = $search_term;
+            $params[] = $search_term;
+            $params[] = $search_term;
+        }
+        
+        if (!empty($status)) {
+            $where_conditions[] = "l.status = %s";
+            $params[] = $status;
+        }
+        
+        $where = '';
+        if (!empty($where_conditions)) {
+            $where = 'WHERE ' . implode(' AND ', $where_conditions);
+        }
+        
+        $sql = "SELECT l.*, c.name as customer_name, c.email as customer_email 
+                FROM {$this->licenses_table} l
+                LEFT JOIN {$this->customers_table} c ON l.customer_id = c.id
+                $where 
+                ORDER BY l.created_at DESC 
+                LIMIT %d OFFSET %d";
+        
+        $params[] = $limit;
+        $params[] = $offset;
+        
+        return $this->wpdb->get_results($this->wpdb->prepare($sql, $params));
+    }
+    
+    /**
+     * Get license by ID
+     */
+    public function get_license($license_id) {
+        if (!$this->is_new_structure_available()) {
+            return null;
+        }
+        
+        return $this->wpdb->get_row($this->wpdb->prepare(
+            "SELECT l.*, c.name as customer_name, c.email as customer_email
+             FROM {$this->licenses_table} l
+             LEFT JOIN {$this->customers_table} c ON l.customer_id = c.id
+             WHERE l.id = %d",
+            $license_id
+        ));
+    }
+    
+    /**
+     * Add new license
+     */
+    public function add_license($customer_id, $license_key, $status = 'active', $license_type = 'yearly', $package_id = null, $user_limit = 5, $expires_on = null, $allowed_domains = '', $notes = '') {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Validate required fields
+        if (empty($customer_id) || empty($license_key)) {
+            return new WP_Error('missing_fields', 'Customer ID and license key are required');
+        }
+        
+        // Check if customer exists
+        $customer = $this->get_customer($customer_id);
+        if (!$customer) {
+            return new WP_Error('customer_not_found', 'Customer not found');
+        }
+        
+        // Check if license key already exists
+        $existing = $this->get_license_by_key($license_key);
+        if ($existing) {
+            return new WP_Error('license_exists', 'License key already exists');
+        }
+        
+        // Generate expiry date if not provided
+        if (empty($expires_on) && $license_type !== 'lifetime') {
+            $days = ($license_type === 'monthly') ? 30 : 365;
+            $expires_on = date('Y-m-d', strtotime("+$days days"));
+        }
+        
+        // Insert license
+        $result = $this->wpdb->insert(
+            $this->licenses_table,
+            array(
+                'customer_id' => intval($customer_id),
+                'license_key' => sanitize_text_field($license_key),
+                'status' => sanitize_text_field($status),
+                'license_type' => sanitize_text_field($license_type),
+                'package_id' => $package_id ? intval($package_id) : null,
+                'user_limit' => intval($user_limit),
+                'expires_on' => $expires_on,
+                'allowed_domains' => sanitize_textarea_field($allowed_domains),
+                'notes' => sanitize_textarea_field($notes)
+            ),
+            array('%d', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('insert_failed', 'Failed to insert license: ' . $this->wpdb->last_error);
+        }
+        
+        return $this->wpdb->insert_id;
+    }
+    
+    /**
+     * Update existing license
+     */
+    public function update_license($license_id, $data = array()) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Check if license exists
+        $existing = $this->get_license($license_id);
+        if (!$existing) {
+            return new WP_Error('license_not_found', 'License not found');
+        }
+        
+        // Prepare update data
+        $update_data = array();
+        $update_format = array();
+        
+        $allowed_fields = array('customer_id', 'license_key', 'status', 'license_type', 'package_id', 'user_limit', 'expires_on', 'allowed_domains', 'notes');
+        
+        foreach ($allowed_fields as $field) {
+            if (isset($data[$field])) {
+                switch ($field) {
+                    case 'customer_id':
+                    case 'package_id':
+                    case 'user_limit':
+                        $update_data[$field] = intval($data[$field]);
+                        $update_format[] = '%d';
+                        break;
+                    case 'expires_on':
+                        $update_data[$field] = $data[$field]; // Should be in Y-m-d format
+                        $update_format[] = '%s';
+                        break;
+                    case 'allowed_domains':
+                    case 'notes':
+                        $update_data[$field] = sanitize_textarea_field($data[$field]);
+                        $update_format[] = '%s';
+                        break;
+                    default:
+                        $update_data[$field] = sanitize_text_field($data[$field]);
+                        $update_format[] = '%s';
+                }
+            }
+        }
+        
+        if (empty($update_data)) {
+            return new WP_Error('no_data', 'No data to update');
+        }
+        
+        $update_data['updated_at'] = current_time('mysql');
+        $update_format[] = '%s';
+        
+        // Check license key uniqueness if updating license key
+        if (isset($update_data['license_key'])) {
+            $key_check = $this->wpdb->get_var($this->wpdb->prepare(
+                "SELECT id FROM {$this->licenses_table} WHERE license_key = %s AND id != %d",
+                $update_data['license_key'], $license_id
+            ));
+            if ($key_check) {
+                return new WP_Error('license_key_exists', 'Another license with this key already exists');
+            }
+        }
+        
+        $result = $this->wpdb->update(
+            $this->licenses_table,
+            $update_data,
+            array('id' => $license_id),
+            $update_format,
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('update_failed', 'Failed to update license: ' . $this->wpdb->last_error);
+        }
+        
+        return $license_id;
+    }
+    
+    /**
+     * Delete license
+     */
+    public function delete_license($license_id) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Check if license exists
+        $license = $this->get_license($license_id);
+        if (!$license) {
+            return new WP_Error('license_not_found', 'License not found');
+        }
+        
+        // Delete license modules associations first
+        $this->wpdb->delete(
+            $this->license_modules_table,
+            array('license_id' => $license_id),
+            array('%d')
+        );
+        
+        // Delete license
+        $result = $this->wpdb->delete(
+            $this->licenses_table,
+            array('id' => $license_id),
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('delete_failed', 'Failed to delete license: ' . $this->wpdb->last_error);
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Add module to license
+     */
+    public function add_license_module($license_id, $module_id) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        // Check if association already exists
+        $exists = $this->wpdb->get_var($this->wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->license_modules_table} WHERE license_id = %d AND module_id = %d",
+            $license_id, $module_id
+        ));
+        
+        if ($exists > 0) {
+            return true; // Already exists
+        }
+        
+        $result = $this->wpdb->insert(
+            $this->license_modules_table,
+            array(
+                'license_id' => intval($license_id),
+                'module_id' => intval($module_id)
+            ),
+            array('%d', '%d')
+        );
+        
+        return $result !== false;
+    }
+    
+    /**
+     * Remove module from license
+     */
+    public function remove_license_module($license_id, $module_id) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        $result = $this->wpdb->delete(
+            $this->license_modules_table,
+            array(
+                'license_id' => $license_id,
+                'module_id' => $module_id
+            ),
+            array('%d', '%d')
+        );
+        
+        return $result !== false;
+    }
+    
+    // =====================================
+    // PACKAGE CRUD METHODS
+    // =====================================
+    
+    /**
+     * Get all packages with pagination
+     */
+    public function get_packages($limit = 20, $offset = 0, $search = '') {
+        if (!$this->is_new_structure_available()) {
+            return array();
+        }
+        
+        $where = '';
+        $params = array();
+        
+        if (!empty($search)) {
+            $where = "WHERE name LIKE %s OR description LIKE %s";
+            $search_term = '%' . $this->wpdb->esc_like($search) . '%';
+            $params = array($search_term, $search_term);
+        }
+        
+        $sql = "SELECT * FROM {$this->packages_table} $where ORDER BY created_at DESC LIMIT %d OFFSET %d";
+        $params[] = $limit;
+        $params[] = $offset;
+        
+        return $this->wpdb->get_results($this->wpdb->prepare($sql, $params));
+    }
+    
+    /**
+     * Get package by ID
+     */
+    public function get_package($package_id) {
+        if (!$this->is_new_structure_available()) {
+            return null;
+        }
+        
+        return $this->wpdb->get_row($this->wpdb->prepare(
+            "SELECT * FROM {$this->packages_table} WHERE id = %d",
+            $package_id
+        ));
+    }
+    
+    /**
+     * Add new package
+     */
+    public function add_package($name, $description = '', $price = 0.00, $duration_days = 365, $user_limit = 5, $features = '', $is_active = true) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        if (empty($name)) {
+            return new WP_Error('missing_name', 'Package name is required');
+        }
+        
+        $result = $this->wpdb->insert(
+            $this->packages_table,
+            array(
+                'name' => sanitize_text_field($name),
+                'description' => sanitize_textarea_field($description),
+                'price' => floatval($price),
+                'duration_days' => intval($duration_days),
+                'user_limit' => intval($user_limit),
+                'features' => sanitize_textarea_field($features),
+                'is_active' => $is_active ? 1 : 0
+            ),
+            array('%s', '%s', '%f', '%d', '%d', '%s', '%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('insert_failed', 'Failed to insert package: ' . $this->wpdb->last_error);
+        }
+        
+        return $this->wpdb->insert_id;
+    }
+    
+    /**
+     * Update existing package
+     */
+    public function update_package($package_id, $data = array()) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        $existing = $this->get_package($package_id);
+        if (!$existing) {
+            return new WP_Error('package_not_found', 'Package not found');
+        }
+        
+        $update_data = array();
+        $update_format = array();
+        
+        $allowed_fields = array('name', 'description', 'price', 'duration_days', 'user_limit', 'features', 'is_active');
+        
+        foreach ($allowed_fields as $field) {
+            if (isset($data[$field])) {
+                switch ($field) {
+                    case 'price':
+                        $update_data[$field] = floatval($data[$field]);
+                        $update_format[] = '%f';
+                        break;
+                    case 'duration_days':
+                    case 'user_limit':
+                        $update_data[$field] = intval($data[$field]);
+                        $update_format[] = '%d';
+                        break;
+                    case 'is_active':
+                        $update_data[$field] = $data[$field] ? 1 : 0;
+                        $update_format[] = '%d';
+                        break;
+                    case 'description':
+                    case 'features':
+                        $update_data[$field] = sanitize_textarea_field($data[$field]);
+                        $update_format[] = '%s';
+                        break;
+                    default:
+                        $update_data[$field] = sanitize_text_field($data[$field]);
+                        $update_format[] = '%s';
+                }
+            }
+        }
+        
+        if (empty($update_data)) {
+            return new WP_Error('no_data', 'No data to update');
+        }
+        
+        $update_data['updated_at'] = current_time('mysql');
+        $update_format[] = '%s';
+        
+        $result = $this->wpdb->update(
+            $this->packages_table,
+            $update_data,
+            array('id' => $package_id),
+            $update_format,
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('update_failed', 'Failed to update package: ' . $this->wpdb->last_error);
+        }
+        
+        return $package_id;
+    }
+    
+    /**
+     * Delete package
+     */
+    public function delete_package($package_id) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        $package = $this->get_package($package_id);
+        if (!$package) {
+            return new WP_Error('package_not_found', 'Package not found');
+        }
+        
+        // Check if package is used by any licenses
+        $license_count = $this->wpdb->get_var($this->wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->licenses_table} WHERE package_id = %d",
+            $package_id
+        ));
+        
+        if ($license_count > 0) {
+            return new WP_Error('package_in_use', 'Cannot delete package that is used by licenses');
+        }
+        
+        $result = $this->wpdb->delete(
+            $this->packages_table,
+            array('id' => $package_id),
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('delete_failed', 'Failed to delete package: ' . $this->wpdb->last_error);
+        }
+        
+        return true;
+    }
+    
+    // =====================================
+    // PAYMENT CRUD METHODS
+    // =====================================
+    
+    /**
+     * Get all payments with pagination
+     */
+    public function get_payments($limit = 20, $offset = 0, $search = '', $status = '') {
+        if (!$this->is_new_structure_available()) {
+            return array();
+        }
+        
+        $where_conditions = array();
+        $params = array();
+        
+        if (!empty($search)) {
+            $where_conditions[] = "(p.transaction_id LIKE %s OR c.name LIKE %s OR c.email LIKE %s)";
+            $search_term = '%' . $this->wpdb->esc_like($search) . '%';
+            $params[] = $search_term;
+            $params[] = $search_term;
+            $params[] = $search_term;
+        }
+        
+        if (!empty($status)) {
+            $where_conditions[] = "p.status = %s";
+            $params[] = $status;
+        }
+        
+        $where = '';
+        if (!empty($where_conditions)) {
+            $where = 'WHERE ' . implode(' AND ', $where_conditions);
+        }
+        
+        $sql = "SELECT p.*, c.name as customer_name, c.email as customer_email, l.license_key
+                FROM {$this->payments_table} p
+                LEFT JOIN {$this->customers_table} c ON p.customer_id = c.id
+                LEFT JOIN {$this->licenses_table} l ON p.license_id = l.id
+                $where 
+                ORDER BY p.created_at DESC 
+                LIMIT %d OFFSET %d";
+        
+        $params[] = $limit;
+        $params[] = $offset;
+        
+        return $this->wpdb->get_results($this->wpdb->prepare($sql, $params));
+    }
+    
+    /**
+     * Get payment by ID
+     */
+    public function get_payment($payment_id) {
+        if (!$this->is_new_structure_available()) {
+            return null;
+        }
+        
+        return $this->wpdb->get_row($this->wpdb->prepare(
+            "SELECT p.*, c.name as customer_name, c.email as customer_email, l.license_key
+             FROM {$this->payments_table} p
+             LEFT JOIN {$this->customers_table} c ON p.customer_id = c.id
+             LEFT JOIN {$this->licenses_table} l ON p.license_id = l.id
+             WHERE p.id = %d",
+            $payment_id
+        ));
+    }
+    
+    /**
+     * Add new payment
+     */
+    public function add_payment($customer_id, $license_id = null, $amount, $currency = 'USD', $status = 'pending', $payment_method = '', $transaction_id = '', $notes = '') {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        if (empty($customer_id) || empty($amount)) {
+            return new WP_Error('missing_fields', 'Customer ID and amount are required');
+        }
+        
+        $customer = $this->get_customer($customer_id);
+        if (!$customer) {
+            return new WP_Error('customer_not_found', 'Customer not found');
+        }
+        
+        $result = $this->wpdb->insert(
+            $this->payments_table,
+            array(
+                'customer_id' => intval($customer_id),
+                'license_id' => $license_id ? intval($license_id) : null,
+                'amount' => floatval($amount),
+                'currency' => sanitize_text_field($currency),
+                'status' => sanitize_text_field($status),
+                'payment_method' => sanitize_text_field($payment_method),
+                'transaction_id' => sanitize_text_field($transaction_id),
+                'notes' => sanitize_textarea_field($notes)
+            ),
+            array('%d', '%d', '%f', '%s', '%s', '%s', '%s', '%s')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('insert_failed', 'Failed to insert payment: ' . $this->wpdb->last_error);
+        }
+        
+        return $this->wpdb->insert_id;
+    }
+    
+    /**
+     * Update existing payment
+     */
+    public function update_payment($payment_id, $data = array()) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        $existing = $this->get_payment($payment_id);
+        if (!$existing) {
+            return new WP_Error('payment_not_found', 'Payment not found');
+        }
+        
+        $update_data = array();
+        $update_format = array();
+        
+        $allowed_fields = array('customer_id', 'license_id', 'amount', 'currency', 'status', 'payment_method', 'transaction_id', 'notes');
+        
+        foreach ($allowed_fields as $field) {
+            if (isset($data[$field])) {
+                switch ($field) {
+                    case 'customer_id':
+                    case 'license_id':
+                        $update_data[$field] = intval($data[$field]);
+                        $update_format[] = '%d';
+                        break;
+                    case 'amount':
+                        $update_data[$field] = floatval($data[$field]);
+                        $update_format[] = '%f';
+                        break;
+                    case 'notes':
+                        $update_data[$field] = sanitize_textarea_field($data[$field]);
+                        $update_format[] = '%s';
+                        break;
+                    default:
+                        $update_data[$field] = sanitize_text_field($data[$field]);
+                        $update_format[] = '%s';
+                }
+            }
+        }
+        
+        if (empty($update_data)) {
+            return new WP_Error('no_data', 'No data to update');
+        }
+        
+        $update_data['updated_at'] = current_time('mysql');
+        $update_format[] = '%s';
+        
+        $result = $this->wpdb->update(
+            $this->payments_table,
+            $update_data,
+            array('id' => $payment_id),
+            $update_format,
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('update_failed', 'Failed to update payment: ' . $this->wpdb->last_error);
+        }
+        
+        return $payment_id;
+    }
+    
+    /**
+     * Delete payment
+     */
+    public function delete_payment($payment_id) {
+        if (!$this->is_new_structure_available()) {
+            return new WP_Error('structure_unavailable', 'New database structure not available');
+        }
+        
+        $payment = $this->get_payment($payment_id);
+        if (!$payment) {
+            return new WP_Error('payment_not_found', 'Payment not found');
+        }
+        
+        $result = $this->wpdb->delete(
+            $this->payments_table,
+            array('id' => $payment_id),
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('delete_failed', 'Failed to delete payment: ' . $this->wpdb->last_error);
+        }
+        
+        return true;
+    }
+
     // =====================================
     // STATISTICS METHODS
     // =====================================

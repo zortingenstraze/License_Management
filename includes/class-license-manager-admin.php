@@ -391,14 +391,9 @@ class License_Manager_Admin {
                 echo '<div class="notice notice-success is-dismissible"><p>' . __('Müşteri başarıyla silindi.', 'license-manager') . '</p></div>';
             }
             
-            // Display customers list
-            $customers = get_posts(array(
-                'post_type' => 'lm_customer',
-                'post_status' => 'publish',
-                'numberposts' => -1,
-                'orderby' => 'title',
-                'order' => 'ASC'
-            ));
+            // Display customers list using new unified database method
+            $database = new License_Manager_Database();
+            $customers = $database->get_customers(100, 0); // Get up to 100 customers
             
             if (!empty($customers)) {
                 ?>
@@ -406,45 +401,35 @@ class License_Manager_Admin {
                     <thead>
                         <tr>
                             <th><?php _e('Müşteri Adı', 'license-manager'); ?></th>
-                            <th><?php _e('Şirket', 'license-manager'); ?></th>
                             <th><?php _e('E-posta', 'license-manager'); ?></th>
                             <th><?php _e('Telefon', 'license-manager'); ?></th>
+                            <th><?php _e('Website', 'license-manager'); ?></th>
                             <th><?php _e('Lisans Sayısı', 'license-manager'); ?></th>
                             <th><?php _e('İşlemler', 'license-manager'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($customers as $customer) : 
-                            $contact_person = get_post_meta($customer->ID, '_contact_person', true);
-                            $company = get_post_meta($customer->ID, '_company', true);
-                            $email = get_post_meta($customer->ID, '_email', true);
-                            $phone = get_post_meta($customer->ID, '_phone', true);
-                            
                             // Count licenses for this customer
-                            $license_count = get_posts(array(
-                                'post_type' => 'lm_license',
-                                'meta_query' => array(
-                                    array(
-                                        'key' => '_customer_id',
-                                        'value' => $customer->ID,
-                                        'compare' => '='
-                                    )
-                                ),
-                                'numberposts' => -1
-                            ));
-                            $license_count = count($license_count);
+                            $licenses = $database->get_licenses(100, 0, '', ''); // Get customer's licenses
+                            $license_count = 0;
+                            foreach ($licenses as $license) {
+                                if ($license->customer_id == $customer->id) {
+                                    $license_count++;
+                                }
+                            }
                         ?>
                         <tr>
-                            <td><strong><?php echo esc_html($contact_person ?: $customer->post_title); ?></strong></td>
-                            <td><?php echo esc_html($company); ?></td>
-                            <td><?php echo esc_html($email); ?></td>
-                            <td><?php echo esc_html($phone); ?></td>
+                            <td><strong><?php echo esc_html($customer->name); ?></strong></td>
+                            <td><?php echo esc_html($customer->email); ?></td>
+                            <td><?php echo esc_html($customer->phone); ?></td>
+                            <td><?php echo esc_html($customer->website); ?></td>
                             <td><?php echo esc_html($license_count); ?></td>
                             <td>
-                                <a href="<?php echo admin_url('admin.php?page=license-manager-edit-customer&customer_id=' . $customer->ID); ?>" class="button button-small">
+                                <a href="<?php echo admin_url('admin.php?page=license-manager-edit-customer&customer_id=' . $customer->id); ?>" class="button button-small">
                                     <?php _e('Düzenle', 'license-manager'); ?>
                                 </a>
-                                <a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=license_manager_delete_customer&id=' . $customer->ID), 'delete_customer_' . $customer->ID); ?>" class="button button-small" 
+                                <a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=license_manager_delete_customer&id=' . $customer->id), 'delete_customer_' . $customer->id); ?>" class="button button-small" 
                                    onclick="return confirm('<?php _e('Bu müşteriyi silmek istediğinizden emin misiniz?', 'license-manager'); ?>')">
                                     <?php _e('Sil', 'license-manager'); ?>
                                 </a>
@@ -1300,130 +1285,94 @@ class License_Manager_Admin {
      * Get dashboard statistics
      */
     private function get_dashboard_stats() {
+        // Use unified database method
+        $database = new License_Manager_Database();
+        $basic_stats = $database->get_dashboard_stats();
+        
+        // Extended statistics calculation
         $current_date = current_time('Y-m-d');
-        
-        // Get total licenses (published posts only)
-        $total_licenses = wp_count_posts('lm_license');
-        $total_licenses = isset($total_licenses->publish) ? $total_licenses->publish : 0;
-        
-        // Get all published licenses for detailed analysis
-        $all_licenses = get_posts(array(
-            'post_type' => 'lm_license',
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'fields' => 'ids'
-        ));
-        
-        $active_licenses_count = 0;
-        $expired_licenses_count = 0;
-        $expiring_soon_count = 0;
-        $lifetime_licenses_count = 0;
-        $customers_with_licenses = array();
-        
         $next_week = date('Y-m-d', strtotime('+7 days'));
         
-        foreach ($all_licenses as $license_id) {
-            $status = get_post_meta($license_id, '_status', true);
-            $expires_on = get_post_meta($license_id, '_expires_on', true);
-            $customer_id = get_post_meta($license_id, '_customer_id', true);
+        // Initialize extended stats with basic ones
+        $stats = $basic_stats;
+        $stats['expiring_soon'] = 0;
+        $stats['lifetime_licenses'] = 0;
+        $stats['licensed_customers'] = 0;
+        $stats['unlicensed_customers'] = 0;
+        $stats['total_revenue'] = 0;
+        $stats['monthly_revenue'] = 0;
+        $stats['pending_payments'] = 0;
+        
+        // Calculate expiring licenses and lifetime licenses
+        if ($database->is_new_structure_available()) {
+            // Use new database structure for detailed calculations
+            $all_licenses = $database->get_licenses(1000, 0); // Get all licenses
+            $customers_with_licenses = array();
             
-            // Track customers with licenses
-            if ($customer_id) {
-                $customers_with_licenses[] = $customer_id;
-            }
-            
-            // Check license status
-            if ($status === 'active' || empty($status)) {
-                if (!empty($expires_on) && $expires_on !== 'lifetime' && $expires_on !== '0000-00-00') {
-                    if ($expires_on < $current_date) {
-                        $expired_licenses_count++;
-                    } else if ($expires_on <= $next_week) {
-                        $expiring_soon_count++;
-                        $active_licenses_count++;
-                    } else {
-                        $active_licenses_count++;
-                    }
-                } else {
-                    // Lifetime license
-                    $lifetime_licenses_count++;
-                    $active_licenses_count++;
+            foreach ($all_licenses as $license) {
+                // Track customers with licenses
+                if ($license->customer_id) {
+                    $customers_with_licenses[] = $license->customer_id;
                 }
-            } else if ($status === 'expired') {
-                $expired_licenses_count++;
-            }
-        }
-        
-        // Get real payment data
-        $all_payments = get_posts(array(
-            'post_type' => 'lm_payment',
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'fields' => 'ids'
-        ));
-        
-        $total_revenue = 0;
-        $monthly_revenue = 0;
-        $this_month = date('Y-m');
-        
-        foreach ($all_payments as $payment_id) {
-            $amount = get_post_meta($payment_id, '_amount', true);
-            $payment_date = get_post_meta($payment_id, '_payment_date', true);
-            
-            // Check if payment is completed
-            $status_terms = wp_get_post_terms($payment_id, 'lm_payment_status');
-            $is_completed = false;
-            if (!empty($status_terms) && !is_wp_error($status_terms)) {
-                $is_completed = ($status_terms[0]->slug === 'completed');
-            }
-            
-            if ($amount && is_numeric($amount) && $is_completed) {
-                $total_revenue += floatval($amount);
                 
-                // Check if payment was this month
-                if ($payment_date) {
-                    $payment_month = date('Y-m', strtotime($payment_date));
-                    if ($payment_month === $this_month) {
-                        $monthly_revenue += floatval($amount);
-                    }
-                } else {
-                    // Fall back to post date if payment date not set
-                    $post_date = get_the_date('Y-m', $payment_id);
-                    if ($post_date === $this_month) {
-                        $monthly_revenue += floatval($amount);
+                // Check for expiring soon
+                if ($license->status === 'active' && !empty($license->expires_on)) {
+                    if ($license->expires_on <= $next_week && $license->expires_on >= $current_date) {
+                        $stats['expiring_soon']++;
                     }
                 }
+                
+                // Check for lifetime licenses
+                if ($license->license_type === 'lifetime' || $license->expires_on === null) {
+                    $stats['lifetime_licenses']++;
+                }
             }
+            
+            // Calculate customer stats
+            $stats['licensed_customers'] = count(array_unique($customers_with_licenses));
+            $stats['unlicensed_customers'] = max(0, $stats['total_customers'] - $stats['licensed_customers']);
+            
+        } else {
+            // Fallback to post type calculations
+            $all_licenses = get_posts(array(
+                'post_type' => 'lm_license',
+                'post_status' => 'publish',
+                'posts_per_page' => -1,
+                'fields' => 'ids'
+            ));
+            
+            $customers_with_licenses = array();
+            
+            foreach ($all_licenses as $license_id) {
+                $status = get_post_meta($license_id, '_status', true);
+                $expires_on = get_post_meta($license_id, '_expires_on', true);
+                $customer_id = get_post_meta($license_id, '_customer_id', true);
+                $license_type = get_post_meta($license_id, '_license_type', true);
+                
+                // Track customers with licenses
+                if ($customer_id) {
+                    $customers_with_licenses[] = $customer_id;
+                }
+                
+                // Check for expiring soon
+                if (($status === 'active' || empty($status)) && !empty($expires_on) && $expires_on !== 'lifetime') {
+                    if ($expires_on <= $next_week && $expires_on >= $current_date) {
+                        $stats['expiring_soon']++;
+                    }
+                }
+                
+                // Check for lifetime licenses
+                if ($license_type === 'lifetime' || $expires_on === 'lifetime') {
+                    $stats['lifetime_licenses']++;
+                }
+            }
+            
+            // Calculate customer stats
+            $stats['licensed_customers'] = count(array_unique($customers_with_licenses));
+            $stats['unlicensed_customers'] = max(0, $stats['total_customers'] - $stats['licensed_customers']);
         }
         
-        // Get total customers (fix the count issue)
-        $customers_query = get_posts(array(
-            'post_type' => 'lm_customer',
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'fields' => 'ids'
-        ));
-        $total_customers = count($customers_query);
-        
-        // Count customers with active licenses
-        $licensed_customers_count = count(array_unique($customers_with_licenses));
-        
-        // Calculate average revenue per customer
-        $avg_revenue_per_customer = $licensed_customers_count > 0 ? $total_revenue / $licensed_customers_count : 0;
-        
-        return array(
-            'total_licenses' => $total_licenses,
-            'active_licenses' => $active_licenses_count,
-            'expired_licenses' => $expired_licenses_count,
-            'expiring_soon' => $expiring_soon_count,
-            'lifetime_licenses' => $lifetime_licenses_count,
-            'total_customers' => $total_customers,
-            'licensed_customers' => $licensed_customers_count,
-            'unlicensed_customers' => $total_customers - $licensed_customers_count,
-            'total_revenue' => $total_revenue,
-            'monthly_revenue' => $monthly_revenue,
-            'avg_revenue_per_customer' => $avg_revenue_per_customer,
-            'total_payments' => count($all_payments),
-        );
+        return $stats;
     }
     
     /**
@@ -1868,24 +1817,30 @@ class License_Manager_Admin {
             wp_die(__('Geçerli bir e-posta adresi gereklidir.', 'license-manager'));
         }
         
-        // Create customer post
-        $customer_id = wp_insert_post(array(
-            'post_title' => $customer_name,
-            'post_content' => $notes,
-            'post_type' => 'lm_customer',
-            'post_status' => 'publish',
-            'meta_input' => array(
-                '_company' => $company,
-                '_contact_person' => $contact_person,
-                '_email' => $email,
-                '_phone' => $phone,
-                '_website' => $website,
-                '_allowed_domains' => $allowed_domains,
-            )
-        ));
+        // Use unified database method
+        $database = new License_Manager_Database();
+        
+        // Prepare address field from company info
+        $address = '';
+        if (!empty($company)) {
+            $address = $company;
+            if (!empty($contact_person)) {
+                $address .= "\n" . __('İletişim: ', 'license-manager') . $contact_person;
+            }
+        }
+        
+        $customer_id = $database->add_customer(
+            $customer_name,
+            $email,
+            $phone,
+            $website,
+            $address,
+            $allowed_domains,
+            $notes
+        );
         
         if (is_wp_error($customer_id)) {
-            wp_die(__('Müşteri eklenirken hata oluştu.', 'license-manager'));
+            wp_die($customer_id->get_error_message());
         }
         
         // Redirect with success message
@@ -1905,12 +1860,13 @@ class License_Manager_Admin {
         
         // Sanitize input data
         $customer_id = intval($_POST['customer_id']);
-        $package_id = !empty($_POST['package_id']) ? intval($_POST['package_id']) : 0;
+        $package_id = !empty($_POST['package_id']) ? intval($_POST['package_id']) : null;
         $license_type = sanitize_text_field($_POST['license_type']);
         $expires_on = sanitize_text_field($_POST['expires_on']);
         $user_limit = !empty($_POST['user_limit']) ? intval($_POST['user_limit']) : get_option('license_manager_default_user_limit', 5);
         $allowed_domains = sanitize_textarea_field($_POST['allowed_domains']);
         $modules = isset($_POST['modules']) ? array_map('sanitize_text_field', $_POST['modules']) : array();
+        $notes = sanitize_textarea_field($_POST['notes'] ?? '');
         
         // Validate required fields
         if (empty($customer_id)) {
@@ -1925,35 +1881,35 @@ class License_Manager_Admin {
             $expires_on = $this->calculate_expiry_date($license_type);
         }
         
-        // Create license post
-        $license_id = wp_insert_post(array(
-            'post_title' => 'Lisans: ' . $license_key,
-            'post_type' => 'lm_license',
-            'post_status' => 'publish',
-            'meta_input' => array(
-                '_license_key' => $license_key,
-                '_customer_id' => $customer_id,
-                '_license_type' => $license_type,
-                '_expires_on' => $expires_on,
-                '_user_limit' => $user_limit,
-                '_allowed_domains' => $allowed_domains,
-                '_modules' => $modules,
-                '_status' => 'active',
-                '_package_id' => $package_id,
-            )
-        ));
+        // Use unified database method
+        $database = new License_Manager_Database();
+        $license_id = $database->add_license(
+            $customer_id,
+            $license_key,
+            'active',
+            $license_type,
+            $package_id,
+            $user_limit,
+            $expires_on,
+            $allowed_domains,
+            $notes
+        );
         
         if (is_wp_error($license_id)) {
-            wp_die(__('Lisans eklenirken hata oluştu.', 'license-manager'));
+            wp_die($license_id->get_error_message());
         }
         
-        // Set license status taxonomy
-        wp_set_object_terms($license_id, 'active', 'lm_license_status');
-        wp_set_object_terms($license_id, $license_type, 'lm_license_type');
-        
-        // Set modules if provided - store in both meta and taxonomy for consistency
-        update_post_meta($license_id, '_modules', $modules);
-        if (!empty($modules)) {
+        // Handle modules assignment if new structure is available
+        if ($database->is_new_structure_available() && !empty($modules)) {
+            $db_v2 = $database->get_db_v2();
+            foreach ($modules as $module_slug) {
+                $module = $db_v2->get_module_by_slug($module_slug);
+                if ($module) {
+                    $db_v2->add_license_module($license_id, $module->id);
+                }
+            }
+        } elseif (!empty($modules)) {
+            // Fallback: set modules in taxonomy for old system
             wp_set_object_terms($license_id, $modules, 'lm_modules');
         }
         
@@ -2243,24 +2199,33 @@ class License_Manager_Admin {
             wp_die(__('Geçerli bir e-posta adresi gereklidir.', 'license-manager'));
         }
         
-        // Update customer post
-        $updated = wp_update_post(array(
-            'ID' => $customer_id,
-            'post_title' => $customer_name,
-            'post_content' => $notes,
-        ));
+        // Use unified database method
+        $database = new License_Manager_Database();
         
-        if (is_wp_error($updated)) {
-            wp_die(__('Müşteri güncellenirken hata oluştu.', 'license-manager'));
+        // Prepare address field from company info
+        $address = '';
+        if (!empty($company)) {
+            $address = $company;
+            if (!empty($contact_person)) {
+                $address .= "\n" . __('İletişim: ', 'license-manager') . $contact_person;
+            }
         }
         
-        // Update customer metadata
-        update_post_meta($customer_id, '_company', $company);
-        update_post_meta($customer_id, '_contact_person', $contact_person);
-        update_post_meta($customer_id, '_email', $email);
-        update_post_meta($customer_id, '_phone', $phone);
-        update_post_meta($customer_id, '_website', $website);
-        update_post_meta($customer_id, '_allowed_domains', $allowed_domains);
+        $data = array(
+            'name' => $customer_name,
+            'email' => $email,
+            'phone' => $phone,
+            'website' => $website,
+            'address' => $address,
+            'allowed_domains' => $allowed_domains,
+            'notes' => $notes
+        );
+        
+        $result = $database->update_customer($customer_id, $data);
+        
+        if (is_wp_error($result)) {
+            wp_die($result->get_error_message());
+        }
         
         // Redirect with success message
         wp_redirect(admin_url('admin.php?page=license-manager-customers&updated=1'));
@@ -2283,11 +2248,12 @@ class License_Manager_Admin {
             wp_die(__('Yetkisiz erişim.', 'license-manager'));
         }
         
-        // Delete customer
-        $deleted = wp_delete_post($customer_id, true);
+        // Use unified database method
+        $database = new License_Manager_Database();
+        $result = $database->delete_customer($customer_id);
         
-        if (!$deleted) {
-            wp_die(__('Müşteri silinirken hata oluştu.', 'license-manager'));
+        if (is_wp_error($result)) {
+            wp_die($result->get_error_message());
         }
         
         // Redirect with success message
