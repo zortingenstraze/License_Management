@@ -48,6 +48,9 @@ class License_Manager_Migration {
         // Migrate existing data
         $this->migrate_existing_data();
         
+        // Clean up old WordPress structures
+        $this->cleanup_old_structures();
+        
         // Update database version
         update_option('license_manager_db_version', self::DB_VERSION);
         
@@ -637,6 +640,91 @@ class License_Manager_Migration {
         }
         
         error_log("License Manager: Migrated $migrated payments");
+    }
+    
+    /**
+     * Clean up old WordPress post types and taxonomies after successful migration
+     */
+    private function cleanup_old_structures() {
+        global $wpdb;
+        
+        error_log('License Manager: Starting cleanup of old WordPress structures');
+        
+        // List of post types to clean up
+        $post_types = array('lm_customer', 'lm_license', 'lm_license_package');
+        
+        // List of taxonomies to clean up  
+        $taxonomies = array('lm_license_status', 'lm_license_type', 'lm_modules');
+        
+        // Delete all posts of the old post types
+        foreach ($post_types as $post_type) {
+            $posts = get_posts(array(
+                'post_type' => $post_type,
+                'posts_per_page' => -1,
+                'post_status' => 'any'
+            ));
+            
+            foreach ($posts as $post) {
+                wp_delete_post($post->ID, true); // Force delete
+            }
+            
+            error_log("License Manager: Deleted " . count($posts) . " posts of type: $post_type");
+        }
+        
+        // Clean up taxonomies
+        foreach ($taxonomies as $taxonomy) {
+            if (taxonomy_exists($taxonomy)) {
+                $terms = get_terms(array(
+                    'taxonomy' => $taxonomy,
+                    'hide_empty' => false
+                ));
+                
+                foreach ($terms as $term) {
+                    wp_delete_term($term->term_id, $taxonomy);
+                }
+                
+                error_log("License Manager: Deleted " . count($terms) . " terms from taxonomy: $taxonomy");
+            }
+        }
+        
+        // Clean up post type and taxonomy registrations from WordPress options
+        $this->cleanup_wordpress_options();
+        
+        error_log('License Manager: Old WordPress structures cleanup completed');
+    }
+    
+    /**
+     * Clean up WordPress options related to old post types
+     */
+    private function cleanup_wordpress_options() {
+        // Clean up rewrite rules that might reference old post types
+        flush_rewrite_rules(true);
+        
+        // Clear any cached data
+        wp_cache_flush();
+        
+        // Clean up any leftover meta entries
+        global $wpdb;
+        
+        // Clean up postmeta for deleted posts
+        $wpdb->query("DELETE pm FROM {$wpdb->postmeta} pm 
+                     LEFT JOIN {$wpdb->posts} p ON pm.post_id = p.ID 
+                     WHERE p.ID IS NULL");
+        
+        // Clean up term relationships for deleted terms
+        $wpdb->query("DELETE tr FROM {$wpdb->term_relationships} tr 
+                     LEFT JOIN {$wpdb->posts} p ON tr.object_id = p.ID 
+                     WHERE p.ID IS NULL");
+        
+        error_log('License Manager: WordPress options cleanup completed');
+    }
+    
+    /**
+     * Force run migration (useful for testing or manual triggers)
+     */
+    public function force_run_migration() {
+        error_log('License Manager: Force running migration');
+        $this->run_migration();
     }
     
     /**
