@@ -109,14 +109,19 @@ class License_Manager_Plugin {
      * Plugin activation
      */
     public function activate() {
-        // Create database tables and default data
+        // Initialize V2 database structure first (new tables)
+        $database_v2 = new License_Manager_Database_V2();
+        $database_v2->create_tables();
+        error_log("BALKAy License: Plugin activation - Created new database structure (V2)");
+        
+        // Initialize old database system for backward compatibility
         $database = new License_Manager_Database();
         $database->create_tables();
         $database->setup_default_data();
         
-        // Force create modules to ensure they exist
+        // Force create modules to ensure they exist in both systems
         $created_modules = $database->force_create_default_modules();
-        error_log("BALKAy License: Plugin activation - Created $created_modules modules");
+        error_log("BALKAy License: Plugin activation - Created $created_modules modules in old structure");
         
         // Set default options
         $this->set_default_options();
@@ -169,8 +174,9 @@ class License_Manager_Plugin {
         // Initialize migration system
         new License_Manager_Migration();
         
-        // Initialize database
+        // Initialize both database systems during transition
         $database = new License_Manager_Database();
+        $database_v2 = new License_Manager_Database_V2();
         
         // Initialize modules manager
         new License_Manager_Modules();

@@ -54,6 +54,336 @@ class License_Manager_Database_V2 {
         return $table_exists === $this->customers_table;
     }
     
+    /**
+     * Create all new database tables
+     */
+    public function create_tables() {
+        global $wpdb;
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        // 1. Customers table
+        $customers_sql = "CREATE TABLE {$this->customers_table} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(255) NOT NULL,
+            email varchar(255) DEFAULT NULL,
+            phone varchar(50) DEFAULT NULL,
+            website varchar(255) DEFAULT NULL,
+            address text DEFAULT NULL,
+            allowed_domains text DEFAULT NULL,
+            notes text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY email (email),
+            KEY name_index (name)
+        ) $charset_collate;";
+        
+        // 2. License Packages table (create first - no dependencies)
+        $packages_sql = "CREATE TABLE {$this->packages_table} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(255) NOT NULL,
+            description text DEFAULT NULL,
+            license_type enum('monthly','yearly','lifetime') DEFAULT 'yearly',
+            user_limit int unsigned DEFAULT 5,
+            price decimal(10,2) DEFAULT 0.00,
+            currency varchar(3) DEFAULT 'USD',
+            features json DEFAULT NULL,
+            is_active boolean DEFAULT true,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY name_index (name),
+            KEY license_type (license_type),
+            KEY is_active (is_active)
+        ) $charset_collate;";
+        
+        // 3. Licenses table
+        $licenses_sql = "CREATE TABLE {$this->licenses_table} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            customer_id bigint(20) unsigned NOT NULL,
+            license_key varchar(255) NOT NULL,
+            status enum('active','expired','suspended','invalid') DEFAULT 'active',
+            license_type enum('monthly','yearly','lifetime') DEFAULT 'yearly',
+            package_id bigint(20) unsigned DEFAULT NULL,
+            user_limit int unsigned DEFAULT 5,
+            expires_on date DEFAULT NULL,
+            allowed_domains text DEFAULT NULL,
+            last_check datetime DEFAULT NULL,
+            notes text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY license_key (license_key),
+            KEY customer_id (customer_id),
+            KEY package_id (package_id),
+            KEY status (status),
+            KEY expires_on (expires_on),
+            FOREIGN KEY (customer_id) REFERENCES {$this->customers_table}(id) ON DELETE CASCADE,
+            FOREIGN KEY (package_id) REFERENCES {$this->packages_table}(id) ON DELETE SET NULL
+        ) $charset_collate;";
+        
+        // 4. Payments table
+        $payments_sql = "CREATE TABLE {$this->payments_table} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            license_id bigint(20) unsigned NOT NULL,
+            customer_id bigint(20) unsigned NOT NULL,
+            amount decimal(10,2) NOT NULL,
+            currency varchar(3) DEFAULT 'USD',
+            payment_method varchar(50) DEFAULT NULL,
+            transaction_id varchar(255) DEFAULT NULL,
+            status enum('completed','pending','failed','refunded') DEFAULT 'pending',
+            payment_date datetime DEFAULT NULL,
+            notes text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY license_id (license_id),
+            KEY customer_id (customer_id),
+            KEY status (status),
+            KEY payment_date (payment_date),
+            KEY transaction_id (transaction_id),
+            FOREIGN KEY (license_id) REFERENCES {$this->licenses_table}(id) ON DELETE CASCADE,
+            FOREIGN KEY (customer_id) REFERENCES {$this->customers_table}(id) ON DELETE CASCADE
+        ) $charset_collate;";
+        
+        // 5. Modules table
+        $modules_sql = "CREATE TABLE {$this->modules_table} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(255) NOT NULL,
+            slug varchar(255) NOT NULL,
+            view_parameter varchar(255) DEFAULT NULL,
+            description text DEFAULT NULL,
+            category varchar(100) DEFAULT 'custom',
+            is_core boolean DEFAULT false,
+            is_active boolean DEFAULT true,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY slug (slug),
+            UNIQUE KEY view_parameter (view_parameter),
+            KEY name_index (name),
+            KEY category (category),
+            KEY is_active (is_active),
+            KEY is_core (is_core)
+        ) $charset_collate;";
+        
+        // 6. Settings table
+        $settings_sql = "CREATE TABLE {$this->settings_table} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            setting_key varchar(255) NOT NULL,
+            setting_value longtext DEFAULT NULL,
+            setting_type enum('string','int','bool','json') DEFAULT 'string',
+            description text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY setting_key (setting_key),
+            KEY setting_type (setting_type)
+        ) $charset_collate;";
+        
+        // Create license-module relationship table
+        $license_modules_sql = "CREATE TABLE {$this->license_modules_table} (
+            license_id bigint(20) unsigned NOT NULL,
+            module_id bigint(20) unsigned NOT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (license_id, module_id),
+            KEY license_id (license_id),
+            KEY module_id (module_id),
+            FOREIGN KEY (license_id) REFERENCES {$this->licenses_table}(id) ON DELETE CASCADE,
+            FOREIGN KEY (module_id) REFERENCES {$this->modules_table}(id) ON DELETE CASCADE
+        ) $charset_collate;";
+        
+        // Execute table creation in proper order (dependencies)
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        
+        $tables = array(
+            'customers' => $customers_sql,
+            'packages' => $packages_sql,
+            'modules' => $modules_sql,
+            'settings' => $settings_sql,
+            'licenses' => $licenses_sql,
+            'payments' => $payments_sql,
+            'license_modules' => $license_modules_sql
+        );
+        
+        foreach ($tables as $table_name => $sql) {
+            error_log("License Manager V2: Creating table $table_name");
+            $result = dbDelta($sql);
+            if ($result) {
+                error_log("License Manager V2: Successfully created table $table_name");
+            } else {
+                error_log("License Manager V2: Failed to create table $table_name");
+            }
+        }
+        
+        // Create default data
+        $this->setup_default_data();
+        
+        return true;
+    }
+    
+    /**
+     * Setup default data for new installation
+     */
+    public function setup_default_data() {
+        $this->create_default_settings();
+        $this->create_default_modules();
+    }
+    
+    /**
+     * Create default settings
+     */
+    private function create_default_settings() {
+        $default_settings = array(
+            array(
+                'setting_key' => 'default_user_limit',
+                'setting_value' => '5',
+                'setting_type' => 'int',
+                'description' => 'Default user limit for new licenses'
+            ),
+            array(
+                'setting_key' => 'grace_period_days',
+                'setting_value' => '7',
+                'setting_type' => 'int',
+                'description' => 'Grace period in days after license expiry'
+            ),
+            array(
+                'setting_key' => 'debug_mode',
+                'setting_value' => 'false',
+                'setting_type' => 'bool',
+                'description' => 'Enable debug logging'
+            ),
+            array(
+                'setting_key' => 'restricted_modules_on_limit_exceeded',
+                'setting_value' => '["license-management", "customer-representatives"]',
+                'setting_type' => 'json',
+                'description' => 'Modules available when user limit is exceeded'
+            )
+        );
+        
+        foreach ($default_settings as $setting) {
+            $this->set_setting(
+                $setting['setting_key'], 
+                $setting['setting_value'], 
+                $setting['setting_type'], 
+                $setting['description']
+            );
+        }
+        
+        error_log('License Manager V2: Created default settings');
+    }
+    
+    /**
+     * Create default modules in new table
+     */
+    private function create_default_modules() {
+        $default_modules = array(
+            array(
+                'name' => 'Dashboard',
+                'slug' => 'dashboard',
+                'view_parameter' => 'dashboard',
+                'description' => 'Ana kontrol paneli ve genel bakış',
+                'category' => 'core'
+            ),
+            array(
+                'name' => 'Lisans Yönetimi',
+                'slug' => 'license-management',
+                'view_parameter' => 'license-management',
+                'description' => 'Lisans yönetimi ve kontrol paneli',
+                'category' => 'core'
+            ),
+            array(
+                'name' => 'Müşteri Temsilcileri',
+                'slug' => 'customer-representatives',
+                'view_parameter' => 'all_personnel',
+                'description' => 'Müşteri temsilcileri ve personel yönetimi',
+                'category' => 'core'
+            ),
+            array(
+                'name' => 'Müşteriler',
+                'slug' => 'customers',
+                'view_parameter' => 'customers',
+                'description' => 'Müşteri yönetimi ve bilgileri',
+                'category' => 'management'
+            ),
+            array(
+                'name' => 'Poliçeler',
+                'slug' => 'policies',
+                'view_parameter' => 'policies',
+                'description' => 'Poliçe yönetimi ve takibi',
+                'category' => 'management'
+            ),
+            array(
+                'name' => 'Teklifler',
+                'slug' => 'quotes',
+                'view_parameter' => 'quotes',
+                'description' => 'Teklif hazırlama ve yönetimi',
+                'category' => 'management'
+            ),
+            array(
+                'name' => 'Satış Fırsatları',
+                'slug' => 'sale-opportunities',
+                'view_parameter' => 'sale_opportunities',
+                'description' => 'Satış fırsatları ve pipeline yönetimi',
+                'category' => 'sales'
+            ),
+            array(
+                'name' => 'Görevler',
+                'slug' => 'tasks',
+                'view_parameter' => 'tasks',
+                'description' => 'Görev yönetimi ve takibi',
+                'category' => 'productivity'
+            ),
+            array(
+                'name' => 'Raporlar',
+                'slug' => 'reports',
+                'view_parameter' => 'reports',
+                'description' => 'Raporlama ve analiz',
+                'category' => 'analytics'
+            ),
+            array(
+                'name' => 'Veri Aktarımı',
+                'slug' => 'data-transfer',
+                'view_parameter' => 'data-transfer',
+                'description' => 'Veri içe/dışa aktarım işlemleri',
+                'category' => 'tools'
+            )
+        );
+        
+        $created_count = 0;
+        foreach ($default_modules as $module) {
+            // Check if module already exists
+            $existing = $this->wpdb->get_var($this->wpdb->prepare(
+                "SELECT id FROM {$this->modules_table} WHERE slug = %s",
+                $module['slug']
+            ));
+            
+            if (!$existing) {
+                $result = $this->wpdb->insert(
+                    $this->modules_table,
+                    array(
+                        'name' => $module['name'],
+                        'slug' => $module['slug'],
+                        'view_parameter' => $module['view_parameter'],
+                        'description' => $module['description'],
+                        'category' => $module['category'],
+                        'is_core' => in_array($module['category'], array('core')),
+                        'is_active' => true
+                    ),
+                    array('%s', '%s', '%s', '%s', '%s', '%d', '%d')
+                );
+                
+                if ($result) {
+                    $created_count++;
+                }
+            }
+        }
+        
+        error_log("License Manager V2: Created $created_count default modules");
+        return $created_count;
+    }
+    
     // =====================================
     // MODULE MANAGEMENT METHODS
     // =====================================
