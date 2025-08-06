@@ -204,13 +204,13 @@ class License_Manager_Migration {
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         
         $tables = array(
-            'customers' => $customers_sql,
-            'packages' => $packages_sql, // Create packages first (no dependencies)
-            'licenses' => $licenses_sql,
-            'payments' => $payments_sql,
-            'modules' => $modules_sql,
-            'settings' => $settings_sql,
-            'license_modules' => $license_modules_sql
+            'customers' => $customers_sql,     // No dependencies
+            'packages' => $packages_sql,      // No dependencies  
+            'modules' => $modules_sql,        // No dependencies
+            'settings' => $settings_sql,      // No dependencies
+            'licenses' => $licenses_sql,      // Depends on customers and packages
+            'payments' => $payments_sql,      // Depends on licenses and customers
+            'license_modules' => $license_modules_sql // Depends on licenses and modules
         );
         
         foreach ($tables as $table_name => $sql) {

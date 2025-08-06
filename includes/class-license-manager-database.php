@@ -20,11 +20,21 @@ class License_Manager_Database {
     }
     
     /**
-     * Create custom tables if needed (currently using WordPress post system)
+     * Create custom tables using the migration system
      */
     public function create_tables() {
-        // We're using WordPress custom post types instead of custom tables
-        // This method is for future use if custom tables are needed
+        // Check if migration is needed and create the new database structure
+        $migration = new License_Manager_Migration();
+        
+        // Check if migration is needed before forcing it
+        $current_db_version = get_option('license_manager_db_version', '1.0.0');
+        
+        if (version_compare($current_db_version, $migration::DB_VERSION, '<')) {
+            error_log('License Manager: Running migration from version ' . $current_db_version . ' to ' . $migration::DB_VERSION);
+            $migration->run_migration();
+        } else {
+            error_log('License Manager: Database already at version ' . $current_db_version . ', skipping migration');
+        }
     }
     
     /**
