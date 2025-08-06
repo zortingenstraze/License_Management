@@ -959,8 +959,15 @@ class License_Manager_Admin {
                 echo '</p></div>';
             } elseif (current_user_can('manage_options')) {
                 echo '<div class="notice notice-info"><p>';
-                echo '<a href="' . add_query_arg('debug', '1') . '" class="button">Debug Bilgilerini Göster</a>';
+                echo '<a href="' . add_query_arg('debug', '1') . '" class="button">Debug Bilgilerini Göster</a> ';
+                echo '<a href="' . add_query_arg('run_test', '1') . '" class="button button-primary">Test Sistemi Çalıştır</a>';
                 echo '</p></div>';
+            }
+            
+            // Include and run test suite if requested
+            if (isset($_GET['run_test']) && $_GET['run_test'] === '1') {
+                include_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/test-suite.php';
+                return;
             }
             ?>
             

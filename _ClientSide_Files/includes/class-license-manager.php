@@ -99,24 +99,17 @@ class Insurance_CRM_License_Manager {
         // Get current view parameter
         $current_view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : '';
         
-        // Always allow license management, user management, and license restriction pages
-        $always_allowed_views = array(
-            'license-management',
-            'license_management',
-            'user-management', 
-            'user_management',
-            'all_personnel',
-            'personnel',
-            'users',
-            'license-restriction'
-        );
+        // Get restricted modules that are allowed when user limit is exceeded
+        $restricted_modules = $this->get_restricted_modules_on_limit_exceeded();
         
-        // If accessing an allowed view or no specific view, allow access
-        if (empty($current_view) || in_array($current_view, $always_allowed_views)) {
+        // If accessing a restricted (allowed) view or no specific view, allow access
+        if (empty($current_view) || in_array($current_view, $restricted_modules)) {
+            error_log("Insurance CRM: User limit exceeded but accessing allowed view: '$current_view'");
             return;
         }
         
         // For any other view when user limit is exceeded, enforce restriction
+        error_log("Insurance CRM: User limit exceeded, blocking access to view: '$current_view'");
         $this->enforce_user_limit();
     }
 
@@ -792,11 +785,23 @@ class Insurance_CRM_License_Manager {
             return false;
         }
 
+        // CRITICAL: Check user limit first - if exceeded, only allow restricted modules
+        if ($this->is_user_limit_exceeded()) {
+            $restricted_modules = $this->get_restricted_modules_on_limit_exceeded();
+            $is_restricted_allowed = in_array($module, $restricted_modules);
+            
+            error_log("License Manager: User limit exceeded. Module '$module' is " . 
+                     ($is_restricted_allowed ? 'ALLOWED' : 'DENIED') . 
+                     " (restricted modules: " . implode(', ', $restricted_modules) . ")");
+            
+            return $is_restricted_allowed;
+        }
+
         $allowed_modules = get_option('insurance_crm_license_modules', array());
         
         error_log("License Manager: Allowed modules from license: " . implode(', ', $allowed_modules));
         
-        // If no specific modules defined, allow all
+        // If no specific modules defined, allow all (when user limit not exceeded)
         if (empty($allowed_modules)) {
             error_log("License Manager: No specific modules defined, allowing all. Module: $module");
             return true;
@@ -1375,5 +1380,88 @@ class Insurance_CRM_License_Manager {
         }
         
         return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    }
+    
+    /**
+     * Get modules that are allowed when user limit is exceeded
+     * Based on problem statement requirements: only "Lisans Yönetimi" and "Müşteri Temsilcileri"
+     * 
+     * @return array Array of module identifiers
+     */
+    public function get_restricted_modules_on_limit_exceeded() {
+        // Try to get from server first (new database structure)
+        $server_modules = $this->get_restricted_modules_from_server();
+        if (!empty($server_modules)) {
+            return $server_modules;
+        }
+        
+        // Fallback to hardcoded list based on problem statement requirements
+        return array(
+            'license-management',
+            'license_management',
+            'customer-representatives', 
+            'all_personnel',
+            'personnel',
+            'users'
+        );
+    }
+    
+    /**
+     * Get restricted modules from license server
+     * 
+     * @return array Array of allowed module identifiers
+     */
+    private function get_restricted_modules_from_server() {
+        $license_key = get_option('insurance_crm_license_key', '');
+        if (empty($license_key)) {
+            return array();
+        }
+        
+        // Try to get from transient cache first
+        $cache_key = 'insurance_crm_restricted_modules_' . md5($license_key);
+        $cached_modules = get_transient($cache_key);
+        if ($cached_modules !== false) {
+            return $cached_modules;
+        }
+        
+        // Make API call to get restricted modules
+        if (!$this->license_api) {
+            return array();
+        }
+        
+        $server_url = get_option('insurance_crm_license_server_url', '');
+        if (empty($server_url)) {
+            return array();
+        }
+        
+        $response = wp_remote_post($server_url . '/wp-json/balkay-license/v1/get_restricted_modules', array(
+            'timeout' => 15,
+            'body' => array(
+                'license_key' => $license_key,
+                'domain' => parse_url(home_url(), PHP_URL_HOST)
+            )
+        ));
+        
+        if (is_wp_error($response)) {
+            error_log('Insurance CRM: Failed to get restricted modules from server: ' . $response->get_error_message());
+            return array();
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['success']) && $data['success'] && isset($data['restricted_modules']) && is_array($data['restricted_modules'])) {
+            // Cache for 1 hour
+            set_transient($cache_key, $data['restricted_modules'], HOUR_IN_SECONDS);
+            
+            error_log('Insurance CRM: Retrieved restricted modules from server: ' . implode(', ', $data['restricted_modules']));
+            return $data['restricted_modules'];
+        }
+        
+        if (isset($data['message'])) {
+            error_log('Insurance CRM: Server returned message: ' . $data['message']);
+        }
+        
+        return array();
     }
 }
