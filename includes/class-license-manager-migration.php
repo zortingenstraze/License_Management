@@ -21,6 +21,10 @@ class License_Manager_Migration {
      */
     public function __construct() {
         add_action('init', array($this, 'check_and_run_migration'));
+        
+        // Add admin actions for manual migration
+        add_action('admin_post_license_manager_force_migration', array($this, 'handle_force_migration'));
+        add_action('admin_post_license_manager_migrate_modules', array($this, 'handle_migrate_modules_only'));
     }
     
     /**
@@ -52,6 +56,88 @@ class License_Manager_Migration {
         update_option('license_manager_db_version', self::DB_VERSION);
         
         error_log('License Manager: Database migration completed successfully');
+    }
+    
+    /**
+     * Force re-migration (useful when migration needs to be run again)
+     */
+    public function force_migration() {
+        error_log('License Manager: Forcing database migration');
+        
+        // Reset the database version to force migration
+        delete_option('license_manager_db_version');
+        
+        // Run migration
+        $this->run_migration();
+    }
+    
+    /**
+     * Migrate only modules (useful for fixing missing modules)
+     */
+    public function migrate_modules_only() {
+        error_log('License Manager: Starting modules-only migration');
+        
+        // Check if new tables exist
+        $database_v2 = new License_Manager_Database_V2();
+        if (!$database_v2->is_new_structure_available()) {
+            error_log('License Manager: New database structure not available, cannot migrate modules');
+            return false;
+        }
+        
+        // Clear existing modules in new table to avoid duplicates
+        global $wpdb;
+        $modules_table = $wpdb->prefix . 'icrm_license_management_modules';
+        $wpdb->query("DELETE FROM {$modules_table}");
+        
+        // Migrate modules
+        $this->migrate_modules();
+        
+        error_log('License Manager: Modules-only migration completed');
+        return true;
+    }
+    
+    /**
+     * Get migration status for debugging
+     */
+    public function get_migration_status() {
+        $database_v2 = new License_Manager_Database_V2();
+        $new_structure_available = $database_v2->is_new_structure_available();
+        $current_db_version = get_option('license_manager_db_version', '1.0.0');
+        
+        $status = array(
+            'new_structure_available' => $new_structure_available,
+            'current_db_version' => $current_db_version,
+            'target_db_version' => self::DB_VERSION,
+            'migration_needed' => version_compare($current_db_version, self::DB_VERSION, '<')
+        );
+        
+        if ($new_structure_available) {
+            global $wpdb;
+            
+            // Count records in new tables
+            $modules_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}icrm_license_management_modules");
+            $customers_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}icrm_license_management_customers");
+            $licenses_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}icrm_license_management_licenses");
+            
+            $status['new_table_counts'] = array(
+                'modules' => $modules_count,
+                'customers' => $customers_count,
+                'licenses' => $licenses_count
+            );
+        }
+        
+        // Count records in old system
+        $old_modules = get_terms(array('taxonomy' => 'lm_modules', 'hide_empty' => false));
+        $old_customers = get_posts(array('post_type' => 'lm_customer', 'numberposts' => -1));
+        $old_licenses = get_posts(array('post_type' => 'lm_license', 'numberposts' => -1));
+        
+        $status['legacy_counts'] = array(
+            'modules' => is_array($old_modules) ? count($old_modules) : 0,
+            'customers' => count($old_customers),
+            'licenses' => count($old_licenses)
+        );
+        
+        return $status;
     }
     
     /**
@@ -390,12 +476,84 @@ class License_Manager_Migration {
     public function migrate_existing_data() {
         error_log('License Manager: Starting data migration from WordPress post types');
         
+        $this->migrate_modules();
         $this->migrate_customers();
         $this->migrate_license_packages();
         $this->migrate_licenses();
         $this->migrate_payments();
         
         error_log('License Manager: Data migration completed');
+    }
+    
+    /**
+     * Migrate modules from lm_modules taxonomy to new modules table
+     */
+    private function migrate_modules() {
+        global $wpdb;
+        
+        $modules_table = $wpdb->prefix . 'icrm_license_management_modules';
+        
+        // Get all existing modules from taxonomy
+        $modules = get_terms(array(
+            'taxonomy' => 'lm_modules',
+            'hide_empty' => false,
+        ));
+        
+        if (is_wp_error($modules)) {
+            error_log('License Manager: Error getting modules for migration: ' . $modules->get_error_message());
+            return;
+        }
+        
+        error_log('License Manager: Found ' . count($modules) . ' modules to migrate');
+        
+        $migrated = 0;
+        foreach ($modules as $module) {
+            // Get module meta data
+            $view_parameter = get_term_meta($module->term_id, 'view_parameter', true);
+            $description = get_term_meta($module->term_id, 'description', true);
+            $category = get_term_meta($module->term_id, 'category', true);
+            
+            // Set defaults for missing data
+            if (empty($view_parameter)) {
+                $view_parameter = $module->slug;
+            }
+            if (empty($category)) {
+                $category = 'custom';
+            }
+            
+            // Determine if it's a core module based on common module names
+            $core_modules = array('dashboard', 'customers', 'policies', 'quotes', 'tasks', 'reports', 'data_transfer');
+            $is_core = in_array($module->slug, $core_modules) ? 1 : 0;
+            
+            // Insert into new modules table
+            $result = $wpdb->insert(
+                $modules_table,
+                array(
+                    'name' => $module->name,
+                    'slug' => $module->slug,
+                    'view_parameter' => $view_parameter,
+                    'description' => $description,
+                    'category' => $category,
+                    'is_core' => $is_core,
+                    'is_active' => 1,
+                    'created_at' => current_time('mysql'),
+                    'updated_at' => current_time('mysql')
+                ),
+                array('%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s')
+            );
+            
+            if ($result !== false) {
+                $migrated++;
+                // Store the new ID for potential future reference
+                update_term_meta($module->term_id, '_migrated_id', $wpdb->insert_id);
+                
+                error_log("License Manager: Migrated module '{$module->name}' (slug: {$module->slug}, view: {$view_parameter})");
+            } else {
+                error_log("License Manager: Failed to migrate module '{$module->name}': " . $wpdb->last_error);
+            }
+        }
+        
+        error_log("License Manager: Migrated $migrated modules");
     }
     
     /**
@@ -666,5 +824,53 @@ class License_Manager_Migration {
         update_option('license_manager_db_version', '1.0.0');
         
         error_log('License Manager: Migration rollback completed');
+    }
+    
+    /**
+     * Handle admin action to force migration
+     */
+    public function handle_force_migration() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        
+        // Verify nonce
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'force_migration')) {
+            wp_die('Security check failed');
+        }
+        
+        $this->force_migration();
+        
+        // Redirect back with success message
+        wp_redirect(add_query_arg(array(
+            'page' => 'license-manager',
+            'tab' => 'debug',
+            'migration_status' => 'forced'
+        ), admin_url('admin.php')));
+        exit;
+    }
+    
+    /**
+     * Handle admin action to migrate modules only
+     */
+    public function handle_migrate_modules_only() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        
+        // Verify nonce
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'migrate_modules')) {
+            wp_die('Security check failed');
+        }
+        
+        $result = $this->migrate_modules_only();
+        
+        // Redirect back with success message
+        wp_redirect(add_query_arg(array(
+            'page' => 'license-manager',
+            'tab' => 'debug',
+            'modules_migration_status' => $result ? 'success' : 'failed'
+        ), admin_url('admin.php')));
+        exit;
     }
 }
