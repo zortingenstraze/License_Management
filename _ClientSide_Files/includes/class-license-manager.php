@@ -29,6 +29,11 @@ class Insurance_CRM_License_Manager {
      * Grace period in days
      */
     private $grace_period_days;
+    
+    /**
+     * Database V2 instance for new table structure
+     */
+    private $database_v2;
 
     /**
      * Constructor
@@ -38,6 +43,11 @@ class Insurance_CRM_License_Manager {
     public function __construct($version) {
         $this->version = $version;
         $this->grace_period_days = 7; // 1 week grace period
+        
+        // Initialize Database V2 instance for new table structure
+        if (class_exists('License_Manager_Database_V2')) {
+            $this->database_v2 = new License_Manager_Database_V2();
+        }
         
         // Initialize license API
         if (class_exists('Insurance_CRM_License_API')) {
@@ -91,6 +101,11 @@ class Insurance_CRM_License_Manager {
             return;
         }
         
+        // Skip if license is bypassed
+        if ($this->license_api && $this->license_api->is_license_bypassed()) {
+            return;
+        }
+        
         // Skip if user limit is not exceeded
         if (!$this->is_user_limit_exceeded()) {
             return;
@@ -101,6 +116,8 @@ class Insurance_CRM_License_Manager {
         
         // Get restricted modules that are allowed when user limit is exceeded
         $restricted_modules = $this->get_restricted_modules_on_limit_exceeded();
+        
+        error_log("Insurance CRM: User limit check - Current view: '$current_view', Allowed modules: " . implode(', ', $restricted_modules));
         
         // If accessing a restricted (allowed) view or no specific view, allow access
         if (empty($current_view) || in_array($current_view, $restricted_modules)) {
@@ -316,13 +333,28 @@ class Insurance_CRM_License_Manager {
                 )
             ), 300); // 5 minutes
             
-            // Redirect to license restriction page with user limit details
+            // Determine redirect URL based on available views
+            $redirect_view = 'license-management'; // Default to license management
+            
+            // Check if license-restriction view exists, otherwise use license-management
+            if ($this->view_exists('license-restriction')) {
+                $redirect_view = 'license-restriction';
+            } else if ($this->view_exists('license-management')) {
+                $redirect_view = 'license-management';
+            } else {
+                // Fallback to all_personnel (user management)
+                $redirect_view = 'all_personnel';
+            }
+            
             $redirect_url = add_query_arg(array(
-                'view' => 'license-restriction',
+                'view' => $redirect_view,
                 'restriction' => 'user_limit',
                 'current_users' => $current_users,
-                'max_users' => $user_limit
+                'max_users' => $user_limit,
+                'message' => 'user_limit_exceeded'
             ), home_url());
+            
+            error_log("Insurance CRM: Enforcing user limit, redirecting to: $redirect_url");
             
             wp_redirect($redirect_url);
             exit;
@@ -335,9 +367,35 @@ class Insurance_CRM_License_Manager {
      * @param string $view_name View parameter name
      * @return bool True if page exists
      */
+    private function view_exists($view_name) {
+        // Enhanced check for common view parameters
+        $known_views = array(
+            'license-restriction',
+            'license-management',
+            'all_personnel', 
+            'personnel', 
+            'users',
+            'dashboard',
+            'customers',
+            'policies',
+            'quotes',
+            'tasks',
+            'reports',
+            'data-transfer',
+            'sale_opportunities'
+        );
+        
+        return in_array($view_name, $known_views);
+    }
+
+    /**
+     * Check if a specific view/page exists (legacy method)
+     * 
+     * @param string $view_name View parameter name
+     * @return bool True if page exists
+     */
     private function page_exists($view_name) {
-        // Simple check - in a real implementation you'd check against your route handlers
-        return in_array($view_name, array('all_personnel', 'personnel', 'users'));
+        return $this->view_exists($view_name);
     }
 
     /**
@@ -848,13 +906,19 @@ class Insurance_CRM_License_Manager {
             }
         }
         
-        // Special case handling for common module variations
+        // Enhanced special case handling for common module variations
         $module_variations = array(
             'sale_opportunities' => array('sales-opportunities', 'sales_opportunities', 'sale-opportunities'),
             'sales-opportunities' => array('sale_opportunities', 'sales_opportunities', 'sale-opportunities'),
             'sales_opportunities' => array('sale_opportunities', 'sales-opportunities', 'sale-opportunities'),
             'data_transfer' => array('data-transfer', 'data_transfer'),
-            'data-transfer' => array('data_transfer', 'data_transfer')
+            'data-transfer' => array('data_transfer', 'data_transfer'),
+            'license-management' => array('license_management'),
+            'license_management' => array('license-management'),
+            'customer-representatives' => array('all_personnel', 'personnel', 'users'),
+            'all_personnel' => array('customer-representatives', 'personnel', 'users'),
+            'personnel' => array('customer-representatives', 'all_personnel', 'users'),
+            'users' => array('customer-representatives', 'all_personnel', 'personnel')
         );
         
         if (isset($module_variations[$module])) {
@@ -1389,14 +1453,23 @@ class Insurance_CRM_License_Manager {
      * @return array Array of module identifiers
      */
     public function get_restricted_modules_on_limit_exceeded() {
-        // Try to get from server first (new database structure)
+        // Try to get from new database structure first
+        if ($this->database_v2 && $this->database_v2->is_new_structure_available()) {
+            $restricted_modules = $this->database_v2->get_setting('restricted_modules_on_limit_exceeded', null);
+            if (is_array($restricted_modules) && !empty($restricted_modules)) {
+                error_log('Insurance CRM: Using restricted modules from new database: ' . implode(', ', $restricted_modules));
+                return $restricted_modules;
+            }
+        }
+        
+        // Try to get from server second
         $server_modules = $this->get_restricted_modules_from_server();
         if (!empty($server_modules)) {
             return $server_modules;
         }
         
         // Fallback to hardcoded list based on problem statement requirements
-        return array(
+        $fallback_modules = array(
             'license-management',
             'license_management',
             'customer-representatives', 
@@ -1404,6 +1477,200 @@ class Insurance_CRM_License_Manager {
             'personnel',
             'users'
         );
+        
+        error_log('Insurance CRM: Using fallback restricted modules: ' . implode(', ', $fallback_modules));
+        return $fallback_modules;
+    }
+    
+    // =====================================
+    // DEBUG AND LOGGING METHODS
+    // =====================================
+    
+    /**
+     * Enhanced debug logging with context
+     * 
+     * @param string $message Log message
+     * @param string $context Context (e.g., 'MODULE_CHECK', 'USER_LIMIT', etc.)
+     * @param array $data Additional data to log
+     */
+    public function debug_log($message, $context = 'GENERAL', $data = array()) {
+        $timestamp = current_time('Y-m-d H:i:s');
+        $user_id = get_current_user_id();
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'N/A';
+        
+        $log_entry = "[{$timestamp}] [{$context}] [User: {$user_id}] [URI: {$request_uri}] {$message}";
+        
+        if (!empty($data)) {
+            $log_entry .= " | Data: " . json_encode($data);
+        }
+        
+        error_log($log_entry);
+        
+        // Also log to custom debug table if in development mode
+        if ($this->is_debug_mode()) {
+            $this->log_to_debug_table($context, $message, $data);
+        }
+    }
+    
+    /**
+     * Check if debug mode is enabled
+     * 
+     * @return bool True if debug mode is enabled
+     */
+    public function is_debug_mode() {
+        // Check from new database first
+        if ($this->database_v2 && $this->database_v2->is_new_structure_available()) {
+            return $this->database_v2->get_setting('debug_mode', false);
+        }
+        
+        // Fallback to WordPress option
+        return get_option('insurance_crm_debug_mode', false);
+    }
+    
+    /**
+     * Log debug information to database table
+     * 
+     * @param string $context Context of the log entry
+     * @param string $message Log message
+     * @param array $data Additional data
+     */
+    private function log_to_debug_table($context, $message, $data = array()) {
+        global $wpdb;
+        
+        // Create debug table if it doesn't exist
+        $this->create_debug_table();
+        
+        $table_name = $wpdb->prefix . 'insurance_crm_debug_logs';
+        
+        $wpdb->insert(
+            $table_name,
+            array(
+                'context' => $context,
+                'message' => $message,
+                'data' => json_encode($data),
+                'user_id' => get_current_user_id(),
+                'request_uri' => isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '',
+                'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '',
+                'ip_address' => $this->get_client_ip(),
+                'created_at' => current_time('mysql')
+            ),
+            array('%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s')
+        );
+    }
+    
+    /**
+     * Create debug logging table
+     */
+    private function create_debug_table() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'insurance_crm_debug_logs';
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            context varchar(50) NOT NULL,
+            message text NOT NULL,
+            data longtext DEFAULT NULL,
+            user_id int(11) DEFAULT NULL,
+            request_uri varchar(500) DEFAULT NULL,
+            user_agent text DEFAULT NULL,
+            ip_address varchar(45) DEFAULT NULL,
+            created_at datetime NOT NULL,
+            PRIMARY KEY (id),
+            KEY context (context),
+            KEY user_id (user_id),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+    
+    /**
+     * Get comprehensive system status for debugging
+     * 
+     * @return array System status information
+     */
+    public function get_system_debug_info() {
+        $debug_info = array(
+            'timestamp' => current_time('Y-m-d H:i:s'),
+            'wordpress_version' => get_bloginfo('version'),
+            'plugin_version' => defined('LICENSE_MANAGER_VERSION') ? LICENSE_MANAGER_VERSION : '1.0.0',
+            'php_version' => PHP_VERSION,
+            'license_info' => $this->get_license_info(),
+            'user_info' => array(
+                'current_user_id' => get_current_user_id(),
+                'user_count' => $this->get_current_user_count(),
+                'user_limit' => get_option('insurance_crm_license_user_limit', 5),
+                'user_limit_exceeded' => $this->is_user_limit_exceeded()
+            ),
+            'database_status' => array(
+                'old_structure_available' => true, // Always true for backward compatibility
+                'new_structure_available' => ($this->database_v2 && $this->database_v2->is_new_structure_available()),
+                'migration_needed' => version_compare(get_option('license_manager_db_version', '1.0.0'), '2.0.0', '<')
+            ),
+            'module_info' => array(
+                'licensed_modules' => get_option('insurance_crm_license_modules', array()),
+                'restricted_modules' => $this->get_restricted_modules_on_limit_exceeded(),
+                'module_mappings' => $this->get_module_view_mappings()
+            ),
+            'settings' => array(
+                'debug_mode' => $this->is_debug_mode(),
+                'grace_period_days' => $this->grace_period_days,
+                'license_bypassed' => $this->license_api ? $this->license_api->is_license_bypassed() : false
+            )
+        );
+        
+        return $debug_info;
+    }
+    
+    /**
+     * Generate debug report for support
+     * 
+     * @return string Debug report as formatted text
+     */
+    public function generate_debug_report() {
+        $debug_info = $this->get_system_debug_info();
+        
+        $report = "=== LICENSE MANAGEMENT SYSTEM DEBUG REPORT ===\n";
+        $report .= "Generated: " . $debug_info['timestamp'] . "\n";
+        $report .= "WordPress: " . $debug_info['wordpress_version'] . "\n";
+        $report .= "Plugin Version: " . $debug_info['plugin_version'] . "\n";
+        $report .= "PHP Version: " . $debug_info['php_version'] . "\n\n";
+        
+        $report .= "=== LICENSE STATUS ===\n";
+        $license = $debug_info['license_info'];
+        $report .= "Status: " . $license['status'] . "\n";
+        $report .= "Type: " . $license['type'] . "\n";
+        $report .= "Expiry: " . $license['expiry'] . "\n";
+        $report .= "In Grace Period: " . ($license['in_grace_period'] ? 'Yes' : 'No') . "\n\n";
+        
+        $report .= "=== USER INFORMATION ===\n";
+        $user = $debug_info['user_info'];
+        $report .= "Current Users: " . $user['user_count'] . "\n";
+        $report .= "User Limit: " . $user['user_limit'] . "\n";
+        $report .= "Limit Exceeded: " . ($user['user_limit_exceeded'] ? 'Yes' : 'No') . "\n\n";
+        
+        $report .= "=== DATABASE STATUS ===\n";
+        $db = $debug_info['database_status'];
+        $report .= "Old Structure: " . ($db['old_structure_available'] ? 'Available' : 'Not Available') . "\n";
+        $report .= "New Structure: " . ($db['new_structure_available'] ? 'Available' : 'Not Available') . "\n";
+        $report .= "Migration Needed: " . ($db['migration_needed'] ? 'Yes' : 'No') . "\n\n";
+        
+        $report .= "=== MODULE INFORMATION ===\n";
+        $modules = $debug_info['module_info'];
+        $report .= "Licensed Modules: " . implode(', ', $modules['licensed_modules']) . "\n";
+        $report .= "Restricted Modules: " . implode(', ', $modules['restricted_modules']) . "\n\n";
+        
+        $report .= "=== SETTINGS ===\n";
+        $settings = $debug_info['settings'];
+        $report .= "Debug Mode: " . ($settings['debug_mode'] ? 'Enabled' : 'Disabled') . "\n";
+        $report .= "Grace Period: " . $settings['grace_period_days'] . " days\n";
+        $report .= "License Bypassed: " . ($settings['license_bypassed'] ? 'Yes' : 'No') . "\n\n";
+        
+        return $report;
     }
     
     /**
