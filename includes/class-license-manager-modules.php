@@ -12,15 +12,21 @@ if (!defined('ABSPATH')) {
 class License_Manager_Modules {
     
     /**
-     * Database instance
+     * Database instance (legacy)
      */
     private $database;
+    
+    /**
+     * Database V2 instance (new structure)
+     */
+    private $database_v2;
     
     /**
      * Constructor
      */
     public function __construct() {
         $this->database = new License_Manager_Database();
+        $this->database_v2 = new License_Manager_Database_V2();
         
         // Add admin hooks
         add_action('admin_post_license_manager_add_module', array($this, 'handle_add_module'));
@@ -35,6 +41,14 @@ class License_Manager_Modules {
      * Get all available modules
      */
     public function get_modules() {
+        // Use new database structure if available
+        if ($this->database_v2->is_new_structure_available()) {
+            error_log('License Manager Modules: Using new database structure for module retrieval');
+            return $this->database_v2->get_available_modules();
+        }
+        
+        // Fallback to legacy method
+        error_log('License Manager Modules: Using legacy database structure for module retrieval');
         return $this->database->get_available_modules();
     }
     
@@ -42,7 +56,14 @@ class License_Manager_Modules {
      * Get module by ID
      */
     public function get_module($term_id) {
-        error_log("License Manager Modules: Getting module by ID: $term_id");
+        // Use new database structure if available
+        if ($this->database_v2->is_new_structure_available()) {
+            error_log("License Manager Modules: Getting module by ID using new structure: $term_id");
+            return $this->database_v2->get_module($term_id);
+        }
+        
+        // Fallback to legacy method
+        error_log("License Manager Modules: Getting module by ID using legacy structure: $term_id");
         
         // Ensure taxonomy is registered first
         if (!taxonomy_exists('lm_modules')) {
@@ -101,6 +122,12 @@ class License_Manager_Modules {
      * Get module by view parameter
      */
     public function get_module_by_view_parameter($view_parameter) {
+        // Use new database structure if available
+        if ($this->database_v2->is_new_structure_available()) {
+            return $this->database_v2->get_module_by_view_parameter($view_parameter);
+        }
+        
+        // Fallback to legacy method
         return $this->database->get_module_by_view_parameter($view_parameter);
     }
     
@@ -108,6 +135,14 @@ class License_Manager_Modules {
      * Add new module
      */
     public function add_module($name, $slug, $view_parameter = '', $description = '', $category = '') {
+        // Use new database structure if available
+        if ($this->database_v2->is_new_structure_available()) {
+            error_log("License Manager Modules: Adding module using new database structure");
+            return $this->database_v2->add_module($name, $slug, $view_parameter, $description, $category);
+        }
+        
+        // Fallback to legacy method
+        error_log("License Manager Modules: Adding module using legacy database structure");
         return $this->database->add_module($name, $slug, $view_parameter, $description, $category);
     }
     
@@ -115,6 +150,14 @@ class License_Manager_Modules {
      * Update module
      */
     public function update_module($term_id, $name = '', $view_parameter = '', $description = '', $category = '') {
+        // Use new database structure if available
+        if ($this->database_v2->is_new_structure_available()) {
+            error_log("License Manager Modules: Updating module using new database structure");
+            return $this->database_v2->update_module($term_id, $name, $view_parameter, $description, $category);
+        }
+        
+        // Fallback to legacy method
+        error_log("License Manager Modules: Updating module using legacy database structure");
         return $this->database->update_module($term_id, $name, $view_parameter, $description, $category);
     }
     
@@ -122,6 +165,14 @@ class License_Manager_Modules {
      * Delete module
      */
     public function delete_module($term_id) {
+        // Use new database structure if available
+        if ($this->database_v2->is_new_structure_available()) {
+            error_log("License Manager Modules: Deleting module using new database structure");
+            return $this->database_v2->delete_module($term_id);
+        }
+        
+        // Fallback to legacy method
+        error_log("License Manager Modules: Deleting module using legacy database structure");
         return $this->database->delete_module($term_id);
     }
     

@@ -181,8 +181,29 @@ class License_Manager_API {
         
         error_log("BALKAy License API: /modules registration result: " . ($modules_result ? 'SUCCESS' : 'FAILED'));
         
+        // Restricted modules endpoint for user limit exceeded scenarios
+        $restricted_modules_result = register_rest_route($this->namespace, '/get_restricted_modules', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'get_restricted_modules'),
+            'permission_callback' => '__return_true',
+            'args' => array(
+                'license_key' => array(
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
+                'domain' => array(
+                    'required' => false,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
+            ),
+        ));
+        
+        error_log("BALKAy License API: /get_restricted_modules registration result: " . ($restricted_modules_result ? 'SUCCESS' : 'FAILED'));
+        
         // Log if all routes registered successfully
-        if ($validate_license_result && $validate_result && $license_info_result && $check_status_result && $test_result && $modules_result) {
+        if ($validate_license_result && $validate_result && $license_info_result && $check_status_result && $test_result && $modules_result && $restricted_modules_result) {
             error_log("BALKAy License API: All REST routes registered successfully for namespace: " . $this->namespace);
         } else {
             error_log("BALKAy License API: Some routes failed to register for namespace: " . $this->namespace);
@@ -210,7 +231,8 @@ class License_Manager_API {
                 '/' . $this->namespace . '/license_info',
                 '/' . $this->namespace . '/check_status',
                 '/' . $this->namespace . '/test',
-                '/' . $this->namespace . '/modules'
+                '/' . $this->namespace . '/modules',
+                '/' . $this->namespace . '/get_restricted_modules'
             );
             
             foreach ($expected_routes as $route) {
@@ -1311,6 +1333,97 @@ class License_Manager_API {
         );
         
         error_log("BALKAy License API: Returning response with " . count($response_data) . " modules");
+        
+        return new WP_REST_Response($response, 200);
+    }
+    
+    /**
+     * Get restricted modules for user limit exceeded scenarios
+     */
+    public function get_restricted_modules($request) {
+        error_log("BALKAy License API: get_restricted_modules endpoint called");
+        
+        $license_key = $request->get_param('license_key');
+        $domain = $request->get_param('domain');
+        
+        if (empty($license_key)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'License key is required'
+            ), 400);
+        }
+        
+        // Get license data first to verify it exists
+        $license_data = $this->get_license_data($license_key);
+        if (!$license_data) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'Invalid license key'
+            ), 404);
+        }
+        
+        // Check domain if provided
+        if (!empty($domain) && !$this->is_domain_allowed($license_data, $domain)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'Domain not authorized for this license'
+            ), 403);
+        }
+        
+        // Get restricted modules from settings or use defaults
+        $database_v2 = new License_Manager_Database_V2();
+        $restricted_modules = array();
+        
+        if ($database_v2->is_new_structure_available()) {
+            $restricted_modules = $database_v2->get_restricted_modules_on_limit_exceeded();
+        } else {
+            // Fallback to default restricted modules from problem statement
+            $restricted_modules = array('license-management', 'customer-representatives');
+        }
+        
+        // Get full module details for the restricted modules
+        $module_details = array();
+        foreach ($restricted_modules as $module_slug) {
+            if ($database_v2->is_new_structure_available()) {
+                $module = $database_v2->get_module_by_slug($module_slug);
+            } else {
+                // Fallback to legacy system
+                $database = new License_Manager_Database();
+                $modules = $database->get_available_modules();
+                $module = null;
+                foreach ($modules as $m) {
+                    if ($m->slug === $module_slug) {
+                        $module = $m;
+                        break;
+                    }
+                }
+            }
+            
+            if ($module) {
+                $module_details[] = array(
+                    'slug' => $module->slug,
+                    'view_parameter' => isset($module->view_parameter) ? $module->view_parameter : '',
+                    'name' => $module->name
+                );
+            } else {
+                // Add basic info if module not found in database
+                $module_details[] = array(
+                    'slug' => $module_slug,
+                    'view_parameter' => $module_slug,
+                    'name' => ucwords(str_replace('-', ' ', $module_slug))
+                );
+            }
+        }
+        
+        $response = array(
+            'success' => true,
+            'restricted_modules' => $restricted_modules,
+            'module_details' => $module_details,
+            'license_status' => $license_data['status'],
+            'message' => 'Modules available when user limit is exceeded'
+        );
+        
+        error_log("BALKAy License API: Returning restricted modules: " . implode(', ', $restricted_modules));
         
         return new WP_REST_Response($response, 200);
     }

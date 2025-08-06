@@ -76,6 +76,8 @@ class License_Manager_Plugin {
      */
     private function load_dependencies() {
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-database.php';
+        require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-database-v2.php';
+        require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-migration.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-modules.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-admin.php';
         require_once LICENSE_MANAGER_PLUGIN_DIR . 'includes/class-license-manager-api.php';
@@ -164,6 +166,9 @@ class License_Manager_Plugin {
      * Initialize plugin components
      */
     public function init_plugin() {
+        // Initialize migration system
+        new License_Manager_Migration();
+        
         // Initialize database
         $database = new License_Manager_Database();
         
