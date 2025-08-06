@@ -250,11 +250,11 @@ if ($restriction_type === 'user_limit') {
             <?php if ($restriction_type === 'user_limit'): ?>
                 <a href="<?php echo esc_url(add_query_arg('view', 'all_personnel', home_url())); ?>" class="btn btn-primary">
                     <i class="fas fa-users"></i>
-                    Kullanıcıları Yönet
+                    Kullanıcı Yönetimi
                 </a>
-                <a href="mailto:info@anadolubirlik.net?subject=Lisans Yükseltme Talebi" class="btn btn-secondary">
-                    <i class="fas fa-envelope"></i>
-                    Lisansı Yükselt
+                <a href="<?php echo esc_url(add_query_arg('view', 'license-management', home_url())); ?>" class="btn btn-secondary">
+                    <i class="fas fa-key"></i>
+                    Lisans Yönetimi
                 </a>
             <?php else: ?>
                 <a href="<?php echo esc_url(add_query_arg('view', 'license-management', home_url())); ?>" class="btn btn-primary">

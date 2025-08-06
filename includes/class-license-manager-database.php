@@ -298,7 +298,7 @@ class License_Manager_Database {
     /**
      * Register Modules taxonomy
      */
-    private function register_modules_taxonomy() {
+    public function register_modules_taxonomy() {
         $labels = array(
             'name' => __('Modüller', 'license-manager'),
             'singular_name' => __('Modül', 'license-manager'),
