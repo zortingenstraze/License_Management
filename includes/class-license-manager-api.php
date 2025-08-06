@@ -798,6 +798,62 @@ class License_Manager_API {
      * Get license data from database
      */
     private function get_license_data($license_key) {
+        // Try new database structure first
+        $database_v2 = new License_Manager_Database_V2();
+        if ($database_v2->is_new_structure_available()) {
+            error_log("BALKAy License API: Using new database structure for license lookup");
+            
+            $license = $database_v2->get_license_by_key($license_key);
+            if ($license) {
+                // Get modules for this license
+                $modules = $database_v2->get_license_modules($license->id);
+                $module_slugs = array();
+                foreach ($modules as $module) {
+                    $module_slugs[] = $module->slug;
+                }
+                
+                // If no modules assigned, use default
+                if (empty($module_slugs)) {
+                    $module_slugs = get_option('license_manager_default_modules', array('dashboard', 'customers', 'policies', 'quotes', 'tasks', 'reports', 'data_transfer'));
+                    error_log("BALKAy License API: Using default modules: " . implode(', ', $module_slugs));
+                }
+                
+                // Handle backward compatibility for module name changes
+                $module_compatibility_map = array(
+                    'sales-opportunities' => 'sale_opportunities',
+                    'sales_opportunities' => 'sale_opportunities',
+                    'data-transfer' => 'data_transfer'
+                );
+                
+                foreach ($module_slugs as $key => $module_slug) {
+                    if (isset($module_compatibility_map[$module_slug])) {
+                        $module_slugs[$key] = $module_compatibility_map[$module_slug];
+                        error_log("BALKAy License API: Converted module '$module_slug' to '" . $module_compatibility_map[$module_slug] . "'");
+                    }
+                }
+                
+                error_log("BALKAy License API: Final modules for license " . $license_key . " (new DB): " . implode(', ', $module_slugs));
+                
+                // Update last check time
+                $database_v2->update_license_last_check($license->id);
+                
+                return array(
+                    'id' => $license->id,
+                    'license_key' => $license_key,
+                    'license_type' => $license->license_type,
+                    'expires_on' => $license->expires_on ? date('Y-m-d', strtotime($license->expires_on)) : '',
+                    'user_limit' => intval($license->user_limit) ?: get_option('license_manager_default_user_limit', 5),
+                    'modules' => $module_slugs,
+                    'allowed_domains' => $license->allowed_domains ? explode(',', $license->allowed_domains) : array(),
+                );
+            }
+            
+            error_log("BALKAy License API: License not found in new database structure: " . $license_key);
+        }
+        
+        // Fallback to legacy WordPress post system
+        error_log("BALKAy License API: Using legacy database structure for license lookup");
+        
         // Query license by meta key
         $licenses = get_posts(array(
             'post_type' => 'lm_license',
@@ -869,7 +925,7 @@ class License_Manager_API {
             }
         }
         
-        error_log("BALKAy License API: Final modules for license " . $license_key . ": " . implode(', ', $module_slugs));
+        error_log("BALKAy License API: Final modules for license " . $license_key . " (legacy): " . implode(', ', $module_slugs));
         
         return array(
             'id' => $license->ID,
@@ -1306,30 +1362,59 @@ class License_Manager_API {
     public function get_modules($request) {
         error_log("BALKAy License API: get_modules endpoint called");
         
-        $database = new License_Manager_Database();
-        $modules = $database->get_available_modules();
-        
-        error_log("BALKAy License API: Retrieved " . count($modules) . " modules from database");
-        
-        $response_data = array();
-        foreach ($modules as $module) {
-            $module_data = array(
-                'id' => $module->term_id,
-                'name' => $module->name,
-                'slug' => $module->slug,
-                'view_parameter' => $module->view_parameter,
-                'description' => $module->description,
-                'category' => $module->category
-            );
-            $response_data[] = $module_data;
+        // Try new database structure first
+        $database_v2 = new License_Manager_Database_V2();
+        if ($database_v2->is_new_structure_available()) {
+            error_log("BALKAy License API: Using new database structure for modules");
             
-            error_log("BALKAy License API: Module - " . $module->name . " (slug: " . $module->slug . ", view: " . $module->view_parameter . ")");
+            $modules = $database_v2->get_available_modules();
+            $response_data = array();
+            
+            foreach ($modules as $module) {
+                $module_data = array(
+                    'id' => $module->id,
+                    'name' => $module->name,
+                    'slug' => $module->slug,
+                    'view_parameter' => $module->view_parameter,
+                    'description' => $module->description,
+                    'category' => $module->category,
+                    'is_core' => (bool) $module->is_core,
+                    'is_active' => (bool) $module->is_active
+                );
+                $response_data[] = $module_data;
+                
+                error_log("BALKAy License API: Module (new DB) - " . $module->name . " (slug: " . $module->slug . ", view: " . $module->view_parameter . ")");
+            }
+        } else {
+            // Fallback to legacy method
+            error_log("BALKAy License API: Using legacy database structure for modules");
+            
+            $database = new License_Manager_Database();
+            $modules = $database->get_available_modules();
+            $response_data = array();
+            
+            foreach ($modules as $module) {
+                $module_data = array(
+                    'id' => isset($module->term_id) ? $module->term_id : 0,
+                    'name' => $module->name,
+                    'slug' => $module->slug,
+                    'view_parameter' => isset($module->view_parameter) ? $module->view_parameter : '',
+                    'description' => isset($module->description) ? $module->description : '',
+                    'category' => isset($module->category) ? $module->category : 'custom',
+                    'is_core' => false, // Legacy modules are not marked as core
+                    'is_active' => true
+                );
+                $response_data[] = $module_data;
+                
+                error_log("BALKAy License API: Module (legacy) - " . $module->name . " (slug: " . $module->slug . ", view: " . $module_data['view_parameter'] . ")");
+            }
         }
         
         $response = array(
             'success' => true,
             'modules' => $response_data,
-            'total' => count($response_data)
+            'total' => count($response_data),
+            'database_structure' => $database_v2->is_new_structure_available() ? 'new' : 'legacy'
         );
         
         error_log("BALKAy License API: Returning response with " . count($response_data) . " modules");
