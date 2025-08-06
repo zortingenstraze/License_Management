@@ -1362,13 +1362,13 @@ class License_Manager_API {
     public function get_modules($request) {
         error_log("BALKAy License API: get_modules endpoint called");
         
-        // Try new database structure first
-        $database_v2 = new License_Manager_Database_V2();
-        if ($database_v2->is_new_structure_available()) {
+        // Use unified database layer
+        $database = new License_Manager_Database();
+        $modules = $database->get_available_modules();
+        $response_data = array();
+        
+        if ($database->is_new_structure_available()) {
             error_log("BALKAy License API: Using new database structure for modules");
-            
-            $modules = $database_v2->get_available_modules();
-            $response_data = array();
             
             foreach ($modules as $module) {
                 $module_data = array(
@@ -1386,12 +1386,8 @@ class License_Manager_API {
                 error_log("BALKAy License API: Module (new DB) - " . $module->name . " (slug: " . $module->slug . ", view: " . $module->view_parameter . ")");
             }
         } else {
-            // Fallback to legacy method
+            // Legacy method
             error_log("BALKAy License API: Using legacy database structure for modules");
-            
-            $database = new License_Manager_Database();
-            $modules = $database->get_available_modules();
-            $response_data = array();
             
             foreach ($modules as $module) {
                 $module_data = array(
@@ -1414,7 +1410,7 @@ class License_Manager_API {
             'success' => true,
             'modules' => $response_data,
             'total' => count($response_data),
-            'database_structure' => $database_v2->is_new_structure_available() ? 'new' : 'legacy'
+            'database_structure' => $database->is_new_structure_available() ? 'new' : 'legacy'
         );
         
         error_log("BALKAy License API: Returning response with " . count($response_data) . " modules");
