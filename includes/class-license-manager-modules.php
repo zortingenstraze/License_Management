@@ -276,9 +276,15 @@ class License_Manager_Modules {
             wp_die(__('Security check failed.'));
         }
         
-        // Get module ID
-        $term_id = intval($_POST['term_id']);
-        if (empty($term_id)) {
+        // Get module ID - support both new and legacy field names
+        $module_id = 0;
+        if (isset($_POST['module_id'])) {
+            $module_id = intval($_POST['module_id']);
+        } elseif (isset($_POST['term_id'])) {
+            $module_id = intval($_POST['term_id']);
+        }
+        
+        if (empty($module_id)) {
             wp_die(__('Invalid module ID.'));
         }
         
@@ -293,20 +299,20 @@ class License_Manager_Modules {
             wp_redirect(add_query_arg(array(
                 'page' => 'license-manager-modules',
                 'action' => 'edit',
-                'id' => $term_id,
+                'id' => $module_id,
                 'error' => 'invalid_view_parameter'
             ), admin_url('admin.php')));
             exit;
         }
         
         // Update module
-        $result = $this->update_module($term_id, $name, $view_parameter, $description, $category);
+        $result = $this->update_module($module_id, $name, $view_parameter, $description, $category);
         
         if (is_wp_error($result)) {
             wp_redirect(add_query_arg(array(
                 'page' => 'license-manager-modules',
                 'action' => 'edit',
-                'id' => $term_id,
+                'id' => $module_id,
                 'error' => $result->get_error_code()
             ), admin_url('admin.php')));
             exit;

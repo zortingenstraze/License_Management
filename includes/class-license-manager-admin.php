@@ -890,11 +890,39 @@ class License_Manager_Admin {
             
             // Add debug button for administrators
             if (current_user_can('manage_options') && isset($_GET['debug'])) {
+                $db_v2 = new License_Manager_Database_V2();
+                $new_structure_available = $db_v2->is_new_structure_available();
+                
                 echo '<div class="notice notice-info"><p>';
                 echo '<strong>Debug Bilgileri:</strong><br>';
+                echo 'Yeni veritabanı yapısı: ' . ($new_structure_available ? 'Mevcut' : 'Mevcut değil') . '<br>';
                 echo 'Toplam modül sayısı: ' . count($modules_manager->get_modules()) . '<br>';
                 echo 'Varsayılan modüller oluşturuldu: ' . (get_option('license_manager_defaults_created', false) ? 'Evet' : 'Hayır') . '<br>';
-                echo 'Taxonomy kayıtlı: ' . (taxonomy_exists('lm_modules') ? 'Evet' : 'Hayır') . '<br>';
+                echo 'Legacy taxonomy kayıtlı: ' . (taxonomy_exists('lm_modules') ? 'Evet' : 'Hayır') . '<br>';
+                
+                if ($new_structure_available) {
+                    $stats = $db_v2->get_dashboard_stats();
+                    echo 'Yeni yapıdaki modül sayısı: ' . $stats['total_modules'] . '<br>';
+                    echo 'Yeni yapıdaki lisans sayısı: ' . $stats['total_licenses'] . '<br>';
+                    echo 'Yeni yapıdaki müşteri sayısı: ' . $stats['total_customers'] . '<br>';
+                    
+                    // Test module addition in new structure
+                    if (isset($_GET['test_add_module'])) {
+                        $test_result = $db_v2->add_module(
+                            'Test Modül ' . time(),
+                            'test-module-' . time(),
+                            'test_module_' . time(),
+                            'Test için eklenen modül',
+                            'custom'
+                        );
+                        
+                        if (is_wp_error($test_result)) {
+                            echo '<br><span style="color: red;">Test modül ekleme başarısız: ' . $test_result->get_error_message() . '</span><br>';
+                        } else {
+                            echo '<br><span style="color: green;">Test modül başarıyla eklendi (ID: ' . $test_result . ')</span><br>';
+                        }
+                    }
+                }
                 
                 // Client-side module debug
                 echo '<br><strong>Client-side Modül Bilgileri:</strong><br>';
@@ -921,6 +949,11 @@ class License_Manager_Admin {
                 }
                 
                 echo '<a href="' . add_query_arg(array('debug' => '1', 'full_test' => '1')) . '" class="button">Kapsamlı Test Çalıştır</a> ';
+                
+                if ($new_structure_available) {
+                    echo '<a href="' . add_query_arg(array('debug' => '1', 'test_add_module' => '1')) . '" class="button">Test Modül Ekle</a> ';
+                }
+                
                 echo '<a href="' . admin_url('admin-post.php?action=license_manager_fix_modules') . '" class="button button-primary">Modül Sorunlarını Düzelt</a> ';
                 echo '<a href="' . admin_url('admin-post.php?action=license_manager_rebuild_modules') . '" class="button button-secondary" onclick="return confirm(\'Bu işlem tüm modül sistemini yeniden oluşturacak. Emin misiniz?\')">Sistemi Yeniden Oluştur</a>';
                 echo '</p></div>';
@@ -979,8 +1012,12 @@ class License_Manager_Admin {
                             </td>
                             <td data-label="<?php _e('Açıklama', 'license-manager'); ?>"><?php echo esc_html($module->description); ?></td>
                             <td data-label="<?php _e('İşlemler', 'license-manager'); ?>">
-                                <a href="<?php echo admin_url('admin.php?page=license-manager-modules&action=edit&id=' . $module->term_id); ?>" class="button button-small"><?php _e('Düzenle', 'license-manager'); ?></a>
-                                <a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=license_manager_delete_module&id=' . $module->term_id), 'license_manager_delete_module_' . $module->term_id); ?>" class="button button-small button-link-delete" onclick="return confirm('<?php _e('Bu modülü silmek istediğinizden emin misiniz?', 'license-manager'); ?>')"><?php _e('Sil', 'license-manager'); ?></a>
+                                <?php 
+                                // Use 'id' for new database structure, 'term_id' for legacy
+                                $module_id = isset($module->id) ? $module->id : (isset($module->term_id) ? $module->term_id : 0);
+                                ?>
+                                <a href="<?php echo admin_url('admin.php?page=license-manager-modules&action=edit&id=' . $module_id); ?>" class="button button-small"><?php _e('Düzenle', 'license-manager'); ?></a>
+                                <a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=license_manager_delete_module&id=' . $module_id), 'license_manager_delete_module_' . $module_id); ?>" class="button button-small button-link-delete" onclick="return confirm('<?php _e('Bu modülü silmek istediğinizden emin misiniz?', 'license-manager'); ?>')"><?php _e('Sil', 'license-manager'); ?></a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -1074,8 +1111,8 @@ class License_Manager_Admin {
      */
     public function display_edit_module() {
         $modules_manager = new License_Manager_Modules();
-        $term_id = intval($_GET['id']);
-        $module = $modules_manager->get_module($term_id);
+        $module_id = intval($_GET['id']);
+        $module = $modules_manager->get_module($module_id);
         
         if (!$module) {
             wp_die(__('Modül bulunamadı.', 'license-manager'));
@@ -1091,7 +1128,7 @@ class License_Manager_Admin {
             
             <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
                 <input type="hidden" name="action" value="license_manager_edit_module" />
-                <input type="hidden" name="term_id" value="<?php echo esc_attr($term_id); ?>" />
+                <input type="hidden" name="module_id" value="<?php echo esc_attr($module_id); ?>" />
                 <?php wp_nonce_field('license_manager_edit_module'); ?>
                 
                 <table class="form-table">
