@@ -12,11 +12,26 @@ if (!defined('ABSPATH')) {
 class License_Manager_Database {
     
     /**
+     * Database V2 instance for new table structure
+     */
+    private $database_v2;
+    
+    /**
      * Constructor
      */
     public function __construct() {
+        // Initialize V2 database layer
+        $this->database_v2 = new License_Manager_Database_V2();
+        
         add_action('init', array($this, 'register_post_types'));
         add_action('init', array($this, 'register_taxonomies'));
+    }
+    
+    /**
+     * Check if new database structure is available
+     */
+    public function is_new_structure_available() {
+        return $this->database_v2->is_new_structure_available();
     }
     
     /**
@@ -641,9 +656,24 @@ class License_Manager_Database {
     }
     
     /**
-     * Get all available modules 
+     * Get all available modules (unified method - routes to appropriate system)
      */
     public function get_available_modules() {
+        // Use new database structure if available
+        if ($this->is_new_structure_available()) {
+            error_log('License Manager Database: Using new V2 structure for module retrieval');
+            return $this->database_v2->get_available_modules();
+        }
+        
+        // Fallback to legacy method
+        error_log('License Manager Database: Using legacy structure for module retrieval');
+        return $this->get_available_modules_legacy();
+    }
+    
+    /**
+     * Get all available modules (legacy method using WordPress taxonomies)
+     */
+    private function get_available_modules_legacy() {
         // Ensure taxonomy is registered
         if (!taxonomy_exists('lm_modules')) {
             error_log('License Manager: Taxonomy not registered, registering now');
@@ -750,9 +780,24 @@ class License_Manager_Database {
     }
     
     /**
-     * Add new module with view parameter support
+     * Add new module (unified method - routes to appropriate system)
      */
     public function add_module($name, $slug, $view_parameter = '', $description = '', $category = '') {
+        // Use new database structure if available
+        if ($this->is_new_structure_available()) {
+            error_log('License Manager Database: Using new V2 structure for module addition');
+            return $this->database_v2->add_module($name, $slug, $view_parameter, $description, $category);
+        }
+        
+        // Fallback to legacy method
+        error_log('License Manager Database: Using legacy structure for module addition');
+        return $this->add_module_legacy($name, $slug, $view_parameter, $description, $category);
+    }
+    
+    /**
+     * Add new module (legacy method using WordPress taxonomies)
+     */
+    private function add_module_legacy($name, $slug, $view_parameter = '', $description = '', $category = '') {
         // Ensure the taxonomy is registered
         if (!taxonomy_exists('lm_modules')) {
             error_log("License Manager: Taxonomy not registered during addition, registering now");
@@ -1009,5 +1054,133 @@ class License_Manager_Database {
         } else {
             error_log("BALKAy License: Failed to create sample license");
         }
+    }
+    
+    // =====================================
+    // UNIFIED ROUTING METHODS
+    // =====================================
+    
+    /**
+     * Get license by key (unified method - routes to appropriate system)
+     */
+    public function get_license_by_key($license_key) {
+        // Use new database structure if available
+        if ($this->is_new_structure_available()) {
+            error_log('License Manager Database: Using new V2 structure for license retrieval');
+            return $this->database_v2->get_license_by_key($license_key);
+        }
+        
+        // Fallback to legacy method - search through license posts
+        error_log('License Manager Database: Using legacy structure for license retrieval');
+        $licenses = get_posts(array(
+            'post_type' => 'lm_license',
+            'post_status' => 'publish',
+            'meta_query' => array(
+                array(
+                    'key' => '_license_key',
+                    'value' => $license_key,
+                    'compare' => '='
+                )
+            ),
+            'numberposts' => 1
+        ));
+        
+        return !empty($licenses) ? $licenses[0] : null;
+    }
+    
+    /**
+     * Get customer by email (unified method - routes to appropriate system)
+     */
+    public function get_customer_by_email($email) {
+        // Use new database structure if available
+        if ($this->is_new_structure_available()) {
+            error_log('License Manager Database: Using new V2 structure for customer retrieval');
+            return $this->database_v2->get_customer_by_email($email);
+        }
+        
+        // Fallback to legacy method - search through customer posts
+        error_log('License Manager Database: Using legacy structure for customer retrieval');
+        $customers = get_posts(array(
+            'post_type' => 'lm_customer',
+            'post_status' => 'publish',
+            'meta_query' => array(
+                array(
+                    'key' => '_customer_email',
+                    'value' => $email,
+                    'compare' => '='
+                )
+            ),
+            'numberposts' => 1
+        ));
+        
+        return !empty($customers) ? $customers[0] : null;
+    }
+    
+    /**
+     * Get dashboard stats (unified method - routes to appropriate system)
+     */
+    public function get_dashboard_stats() {
+        // Use new database structure if available
+        if ($this->is_new_structure_available()) {
+            error_log('License Manager Database: Using new V2 structure for dashboard stats');
+            return $this->database_v2->get_dashboard_stats();
+        }
+        
+        // Fallback to legacy method - count posts
+        error_log('License Manager Database: Using legacy structure for dashboard stats');
+        $customers_count = wp_count_posts('lm_customer');
+        $licenses_count = wp_count_posts('lm_license');
+        $packages_count = wp_count_posts('lm_license_package');
+        $payments_count = wp_count_posts('lm_payment');
+        
+        return array(
+            'customers' => $customers_count->publish ?? 0,
+            'licenses' => $licenses_count->publish ?? 0,
+            'packages' => $packages_count->publish ?? 0,
+            'payments' => $payments_count->publish ?? 0,
+            'modules' => count($this->get_available_modules())
+        );
+    }
+    
+    /**
+     * Get module by ID (unified method - routes to appropriate system)
+     */
+    public function get_module($module_id) {
+        // Use new database structure if available
+        if ($this->is_new_structure_available()) {
+            error_log('License Manager Database: Using new V2 structure for getting module by ID');
+            return $this->database_v2->get_module($module_id);
+        }
+        
+        // Fallback to legacy method
+        error_log('License Manager Database: Using legacy structure for getting module by ID');
+        return $this->get_module_legacy($module_id);
+    }
+    
+    /**
+     * Get module by ID (legacy method using WordPress taxonomies)
+     */
+    private function get_module_legacy($term_id) {
+        // Ensure taxonomy is registered first
+        if (!taxonomy_exists('lm_modules')) {
+            error_log("License Manager Database: Taxonomy not registered, registering now");
+            $this->register_modules_taxonomy();
+            flush_rewrite_rules(false);
+            usleep(100000); // 0.1 seconds
+        }
+        
+        $term = get_term($term_id, 'lm_modules');
+        
+        if (is_wp_error($term) || !$term) {
+            error_log("License Manager Database: Module not found for ID: $term_id");
+            return null;
+        }
+        
+        // Add meta data
+        $term->view_parameter = get_term_meta($term->term_id, 'view_parameter', true);
+        $term->description = get_term_meta($term->term_id, 'description', true);
+        $term->category = get_term_meta($term->term_id, 'category', true);
+        
+        return $term;
     }
 }

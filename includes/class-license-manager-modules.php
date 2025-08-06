@@ -12,21 +12,15 @@ if (!defined('ABSPATH')) {
 class License_Manager_Modules {
     
     /**
-     * Database instance (legacy)
+     * Database instance (unified)
      */
     private $database;
-    
-    /**
-     * Database V2 instance (new structure)
-     */
-    private $database_v2;
     
     /**
      * Constructor
      */
     public function __construct() {
         $this->database = new License_Manager_Database();
-        $this->database_v2 = new License_Manager_Database_V2();
         
         // Add admin hooks
         add_action('admin_post_license_manager_add_module', array($this, 'handle_add_module'));
@@ -38,17 +32,10 @@ class License_Manager_Modules {
     }
     
     /**
-     * Get all available modules
+     * Get all available modules (uses unified database routing)
      */
     public function get_modules() {
-        // Use new database structure if available
-        if ($this->database_v2->is_new_structure_available()) {
-            error_log('License Manager Modules: Using new database structure for module retrieval');
-            return $this->database_v2->get_available_modules();
-        }
-        
-        // Fallback to legacy method
-        error_log('License Manager Modules: Using legacy database structure for module retrieval');
+        error_log('License Manager Modules: Getting modules via unified database');
         return $this->database->get_available_modules();
     }
     
@@ -56,78 +43,15 @@ class License_Manager_Modules {
      * Get module by ID
      */
     public function get_module($term_id) {
-        // Use new database structure if available
-        if ($this->database_v2->is_new_structure_available()) {
-            error_log("License Manager Modules: Getting module by ID using new structure: $term_id");
-            return $this->database_v2->get_module($term_id);
-        }
-        
-        // Fallback to legacy method
-        error_log("License Manager Modules: Getting module by ID using legacy structure: $term_id");
-        
-        // Ensure taxonomy is registered first
-        if (!taxonomy_exists('lm_modules')) {
-            error_log("License Manager Modules: Taxonomy not registered, registering now");
-            $this->database->register_modules_taxonomy();
-            // Force flush to ensure taxonomy is available
-            flush_rewrite_rules(false);
-            // Small delay to ensure registration is complete
-            usleep(100000); // 0.1 seconds
-        }
-        
-        // Try with retry logic for robustness
-        $retry_count = 0;
-        $max_retries = 3;
-        $term = false;
-        
-        while ($retry_count < $max_retries && (is_wp_error($term) || !$term)) {
-            // Clear relevant caches before retry if needed
-            if ($retry_count > 0) {
-                clean_term_cache($term_id, 'lm_modules');
-                wp_cache_delete($term_id, 'lm_modules');
-                error_log("License Manager Modules: Retry $retry_count - cleared caches for term: $term_id");
-            }
-            
-            $term = get_term($term_id, 'lm_modules');
-            
-            if (is_wp_error($term)) {
-                error_log("License Manager Modules: Error getting module (attempt " . ($retry_count + 1) . "): " . $term->get_error_message());
-                if ($retry_count < $max_retries - 1) {
-                    usleep(200000); // 0.2 seconds delay between retries
-                }
-            } elseif (!$term) {
-                error_log("License Manager Modules: Module not found (attempt " . ($retry_count + 1) . ") for ID: $term_id");
-                if ($retry_count < $max_retries - 1) {
-                    usleep(200000); // 0.2 seconds delay between retries
-                }
-            }
-            $retry_count++;
-        }
-        
-        if (is_wp_error($term) || !$term) {
-            error_log("License Manager Modules: Final failure - Module not found for ID: $term_id after $max_retries attempts");
-            return null;
-        }
-        
-        // Add meta data
-        $term->view_parameter = get_term_meta($term->term_id, 'view_parameter', true);
-        $term->description = get_term_meta($term->term_id, 'description', true);
-        $term->category = get_term_meta($term->term_id, 'category', true);
-        
-        error_log("License Manager Modules: Successfully retrieved module: " . $term->name . " (ID: $term_id, view: " . $term->view_parameter . ")");
-        return $term;
+        error_log("License Manager Modules: Getting module by ID via unified database: $term_id");
+        return $this->database->get_module($term_id);
     }
     
     /**
-     * Get module by view parameter
+     * Get module by view parameter (uses unified database routing)
      */
     public function get_module_by_view_parameter($view_parameter) {
-        // Use new database structure if available
-        if ($this->database_v2->is_new_structure_available()) {
-            return $this->database_v2->get_module_by_view_parameter($view_parameter);
-        }
-        
-        // Fallback to legacy method
+        error_log("License Manager Modules: Getting module by view parameter via unified database: $view_parameter");
         return $this->database->get_module_by_view_parameter($view_parameter);
     }
     
