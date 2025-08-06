@@ -86,13 +86,38 @@ class Insurance_CRM_License_Manager {
      * Maybe enforce user limit on specific pages
      */
     public function maybe_enforce_user_limit() {
-        // Only enforce on specific pages that require user limit checking
-        $restricted_views = array('all_personnel', 'personnel', 'users', 'add_personnel');
+        // Skip if in admin area - admin restrictions are handled by module validator
+        if (is_admin()) {
+            return;
+        }
+        
+        // Skip if user limit is not exceeded
+        if (!$this->is_user_limit_exceeded()) {
+            return;
+        }
+        
+        // Get current view parameter
         $current_view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : '';
         
-        if (in_array($current_view, $restricted_views)) {
-            $this->enforce_user_limit();
+        // Always allow license management, user management, and license restriction pages
+        $always_allowed_views = array(
+            'license-management',
+            'license_management',
+            'user-management', 
+            'user_management',
+            'all_personnel',
+            'personnel',
+            'users',
+            'license-restriction'
+        );
+        
+        // If accessing an allowed view or no specific view, allow access
+        if (empty($current_view) || in_array($current_view, $always_allowed_views)) {
+            return;
         }
+        
+        // For any other view when user limit is exceeded, enforce restriction
+        $this->enforce_user_limit();
     }
 
     /**
@@ -292,27 +317,19 @@ class Insurance_CRM_License_Manager {
                 'current_users' => $current_users,
                 'max_users' => $user_limit,
                 'message' => sprintf(
-                    'Kullanıcı sayısını aştınız! Mevcut kullanıcı sayısı: %d, Lisansınızın izin verdiği maksimum kullanıcı sayısı: %d. Lütfen kullanıcı sayısını lisansınızın izin verdiği kadar kullanın veya yeni lisans satın alın.',
+                    'Kullanıcı sayısını aştınız! Mevcut kullanıcı sayısı: %d, Lisansınızın izin verdiği maksimum kullanıcı sayısı: %d. Sadece kullanıcı yönetimi ve lisans yönetimi sayfalarına erişebilirsiniz. Lütfen kullanıcı sayısını azaltın veya yeni lisans satın alın.',
                     $current_users,
                     $user_limit
                 )
             ), 300); // 5 minutes
             
-            // Redirect to all_personnel page or license restriction page
+            // Redirect to license restriction page with user limit details
             $redirect_url = add_query_arg(array(
                 'view' => 'license-restriction',
                 'restriction' => 'user_limit',
                 'current_users' => $current_users,
                 'max_users' => $user_limit
             ), home_url());
-            
-            // If all_personnel page exists, redirect there instead
-            if ($this->page_exists('all_personnel')) {
-                $redirect_url = add_query_arg(array(
-                    'view' => 'all_personnel',
-                    'license_warning' => 'user_limit_exceeded'
-                ), home_url());
-            }
             
             wp_redirect($redirect_url);
             exit;

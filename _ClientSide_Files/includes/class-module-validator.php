@@ -77,6 +77,26 @@ class Insurance_CRM_Module_Validator {
             return false;
         }
         
+        // Always allow access to license management and user management pages
+        $always_allowed_modules = array(
+            'license-management',
+            'license_management', 
+            'user-management',
+            'user_management',
+            'all_personnel',
+            'personnel',
+            'users'
+        );
+        
+        if (in_array($module_or_view, $always_allowed_modules)) {
+            return true;
+        }
+        
+        // Check user limit first - if exceeded, only allow license and user management
+        if ($this->license_manager->is_user_limit_exceeded()) {
+            return false;
+        }
+        
         return $this->license_manager->is_module_allowed($module_or_view);
     }
     
@@ -119,7 +139,33 @@ class Insurance_CRM_Module_Validator {
         // Log the unauthorized access attempt
         $this->log_unauthorized_access($module_or_view, 'frontend');
         
-        // Show access denied message
+        // Check if this is due to user limit exceeded
+        if ($this->license_manager && $this->license_manager->is_user_limit_exceeded()) {
+            $user_limit = get_option('insurance_crm_license_user_limit', 5);
+            $current_users = $this->license_manager->get_current_user_count();
+            
+            // Store restriction details for the redirect page
+            set_transient('insurance_crm_restriction_details_' . get_current_user_id(), array(
+                'type' => 'user_limit',
+                'current_users' => $current_users,
+                'max_users' => $user_limit,
+                'message' => sprintf(
+                    'Kullanıcı sayısını aştınız! Mevcut kullanıcı sayısı: %d, Lisansınızın izin verdiği maksimum kullanıcı sayısı: %d. Sadece kullanıcı yönetimi ve lisans yönetimi sayfalarına erişebilirsiniz.',
+                    $current_users,
+                    $user_limit
+                )
+            ), 300); // 5 minutes
+            
+            // Redirect to license restriction page with user limit details
+            wp_redirect(add_query_arg(array(
+                'restriction' => 'user_limit',
+                'current_users' => $current_users,
+                'max_users' => $user_limit
+            ), $this->get_license_restriction_url()));
+            exit;
+        }
+        
+        // Show regular access denied message for other restrictions
         wp_die(
             $this->get_access_denied_message($module_or_view),
             __('Erişim Reddedildi', 'insurance-crm'),
@@ -136,7 +182,22 @@ class Insurance_CRM_Module_Validator {
         // Log the unauthorized access attempt
         $this->log_unauthorized_access($module, 'admin');
         
-        // Redirect to dashboard with error message
+        // Check if this is due to user limit exceeded
+        if ($this->license_manager && $this->license_manager->is_user_limit_exceeded()) {
+            $user_limit = get_option('insurance_crm_license_user_limit', 5);
+            $current_users = $this->license_manager->get_current_user_count();
+            
+            // Redirect to admin dashboard with user limit warning
+            wp_redirect(add_query_arg(array(
+                'page' => 'insurance-crm',
+                'user_limit_exceeded' => '1',
+                'current_users' => $current_users,
+                'max_users' => $user_limit
+            ), admin_url('admin.php')));
+            exit;
+        }
+        
+        // Redirect to dashboard with error message for other restrictions
         wp_redirect(add_query_arg(array(
             'page' => 'insurance-crm',
             'access_denied' => $module
@@ -287,5 +348,16 @@ class Insurance_CRM_Module_Validator {
      */
     public function clear_access_logs() {
         delete_option('insurance_crm_access_logs');
+    }
+    
+    /**
+     * Get license restriction page URL
+     * 
+     * @return string URL to license restriction page
+     */
+    private function get_license_restriction_url() {
+        // Try to find the license restriction template or default page
+        // This should point to where the license-restriction.php template is served
+        return add_query_arg('view', 'license-restriction', home_url());
     }
 }
