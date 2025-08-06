@@ -1374,68 +1374,6 @@ class License_Manager_Admin {
         
         return $stats;
     }
-        $this_month = date('Y-m');
-        
-        foreach ($all_payments as $payment_id) {
-            $amount = get_post_meta($payment_id, '_amount', true);
-            $payment_date = get_post_meta($payment_id, '_payment_date', true);
-            
-            // Check if payment is completed
-            $status_terms = wp_get_post_terms($payment_id, 'lm_payment_status');
-            $is_completed = false;
-            if (!empty($status_terms) && !is_wp_error($status_terms)) {
-                $is_completed = ($status_terms[0]->slug === 'completed');
-            }
-            
-            if ($amount && is_numeric($amount) && $is_completed) {
-                $total_revenue += floatval($amount);
-                
-                // Check if payment was this month
-                if ($payment_date) {
-                    $payment_month = date('Y-m', strtotime($payment_date));
-                    if ($payment_month === $this_month) {
-                        $monthly_revenue += floatval($amount);
-                    }
-                } else {
-                    // Fall back to post date if payment date not set
-                    $post_date = get_the_date('Y-m', $payment_id);
-                    if ($post_date === $this_month) {
-                        $monthly_revenue += floatval($amount);
-                    }
-                }
-            }
-        }
-        
-        // Get total customers (fix the count issue)
-        $customers_query = get_posts(array(
-            'post_type' => 'lm_customer',
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'fields' => 'ids'
-        ));
-        $total_customers = count($customers_query);
-        
-        // Count customers with active licenses
-        $licensed_customers_count = count(array_unique($customers_with_licenses));
-        
-        // Calculate average revenue per customer
-        $avg_revenue_per_customer = $licensed_customers_count > 0 ? $total_revenue / $licensed_customers_count : 0;
-        
-        return array(
-            'total_licenses' => $total_licenses,
-            'active_licenses' => $active_licenses_count,
-            'expired_licenses' => $expired_licenses_count,
-            'expiring_soon' => $expiring_soon_count,
-            'lifetime_licenses' => $lifetime_licenses_count,
-            'total_customers' => $total_customers,
-            'licensed_customers' => $licensed_customers_count,
-            'unlicensed_customers' => $total_customers - $licensed_customers_count,
-            'total_revenue' => $total_revenue,
-            'monthly_revenue' => $monthly_revenue,
-            'avg_revenue_per_customer' => $avg_revenue_per_customer,
-            'total_payments' => count($all_payments),
-        );
-    }
     
     /**
      * Display recent licenses
@@ -1922,12 +1860,13 @@ class License_Manager_Admin {
         
         // Sanitize input data
         $customer_id = intval($_POST['customer_id']);
-        $package_id = !empty($_POST['package_id']) ? intval($_POST['package_id']) : 0;
+        $package_id = !empty($_POST['package_id']) ? intval($_POST['package_id']) : null;
         $license_type = sanitize_text_field($_POST['license_type']);
         $expires_on = sanitize_text_field($_POST['expires_on']);
         $user_limit = !empty($_POST['user_limit']) ? intval($_POST['user_limit']) : get_option('license_manager_default_user_limit', 5);
         $allowed_domains = sanitize_textarea_field($_POST['allowed_domains']);
         $modules = isset($_POST['modules']) ? array_map('sanitize_text_field', $_POST['modules']) : array();
+        $notes = sanitize_textarea_field($_POST['notes'] ?? '');
         
         // Validate required fields
         if (empty($customer_id)) {
@@ -1942,35 +1881,35 @@ class License_Manager_Admin {
             $expires_on = $this->calculate_expiry_date($license_type);
         }
         
-        // Create license post
-        $license_id = wp_insert_post(array(
-            'post_title' => 'Lisans: ' . $license_key,
-            'post_type' => 'lm_license',
-            'post_status' => 'publish',
-            'meta_input' => array(
-                '_license_key' => $license_key,
-                '_customer_id' => $customer_id,
-                '_license_type' => $license_type,
-                '_expires_on' => $expires_on,
-                '_user_limit' => $user_limit,
-                '_allowed_domains' => $allowed_domains,
-                '_modules' => $modules,
-                '_status' => 'active',
-                '_package_id' => $package_id,
-            )
-        ));
+        // Use unified database method
+        $database = new License_Manager_Database();
+        $license_id = $database->add_license(
+            $customer_id,
+            $license_key,
+            'active',
+            $license_type,
+            $package_id,
+            $user_limit,
+            $expires_on,
+            $allowed_domains,
+            $notes
+        );
         
         if (is_wp_error($license_id)) {
-            wp_die(__('Lisans eklenirken hata oluştu.', 'license-manager'));
+            wp_die($license_id->get_error_message());
         }
         
-        // Set license status taxonomy
-        wp_set_object_terms($license_id, 'active', 'lm_license_status');
-        wp_set_object_terms($license_id, $license_type, 'lm_license_type');
-        
-        // Set modules if provided - store in both meta and taxonomy for consistency
-        update_post_meta($license_id, '_modules', $modules);
-        if (!empty($modules)) {
+        // Handle modules assignment if new structure is available
+        if ($database->is_new_structure_available() && !empty($modules)) {
+            $db_v2 = $database->get_db_v2();
+            foreach ($modules as $module_slug) {
+                $module = $db_v2->get_module_by_slug($module_slug);
+                if ($module) {
+                    $db_v2->add_license_module($license_id, $module->id);
+                }
+            }
+        } elseif (!empty($modules)) {
+            // Fallback: set modules in taxonomy for old system
             wp_set_object_terms($license_id, $modules, 'lm_modules');
         }
         

@@ -1398,6 +1398,115 @@ class License_Manager_Database {
     }
     
     /**
+     * Add new license
+     */
+    public function add_license($customer_id, $license_key, $status = 'active', $license_type = 'yearly', $package_id = null, $user_limit = 5, $expires_on = null, $allowed_domains = '', $notes = '') {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->add_license($customer_id, $license_key, $status, $license_type, $package_id, $user_limit, $expires_on, $allowed_domains, $notes);
+        }
+        
+        // Fallback to post type method
+        if (empty($customer_id) || empty($license_key)) {
+            return new WP_Error('missing_fields', 'Customer ID and license key are required');
+        }
+        
+        // Check if license key already exists
+        if ($this->get_license_by_key($license_key)) {
+            return new WP_Error('license_exists', 'License key already exists');
+        }
+        
+        $post_id = wp_insert_post(array(
+            'post_type' => 'lm_license',
+            'post_title' => 'Lisans: ' . $license_key,
+            'post_content' => $notes,
+            'post_status' => 'publish'
+        ));
+        
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+        
+        // Save metadata
+        update_post_meta($post_id, '_license_key', $license_key);
+        update_post_meta($post_id, '_customer_id', $customer_id);
+        update_post_meta($post_id, '_status', $status);
+        update_post_meta($post_id, '_license_type', $license_type);
+        if ($package_id) update_post_meta($post_id, '_package_id', $package_id);
+        update_post_meta($post_id, '_user_limit', $user_limit);
+        if ($expires_on) update_post_meta($post_id, '_expires_on', $expires_on);
+        update_post_meta($post_id, '_allowed_domains', $allowed_domains);
+        
+        // Set taxonomies
+        wp_set_object_terms($post_id, $status, 'lm_license_status');
+        wp_set_object_terms($post_id, $license_type, 'lm_license_type');
+        
+        return $post_id;
+    }
+    
+    /**
+     * Update license
+     */
+    public function update_license($license_id, $data = array()) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->update_license($license_id, $data);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($license_id);
+        if (!$post || $post->post_type !== 'lm_license') {
+            return new WP_Error('license_not_found', 'License not found');
+        }
+        
+        $update_post = array('ID' => $license_id);
+        
+        if (isset($data['notes'])) {
+            $update_post['post_content'] = sanitize_textarea_field($data['notes']);
+        }
+        
+        if (count($update_post) > 1) {
+            $result = wp_update_post($update_post);
+            if (is_wp_error($result)) {
+                return $result;
+            }
+        }
+        
+        // Update metadata
+        $meta_fields = array('license_key', 'customer_id', 'status', 'license_type', 'package_id', 'user_limit', 'expires_on', 'allowed_domains');
+        foreach ($meta_fields as $field) {
+            if (isset($data[$field])) {
+                update_post_meta($license_id, '_' . $field, $data[$field]);
+                
+                // Update taxonomy for specific fields
+                if ($field === 'status') {
+                    wp_set_object_terms($license_id, $data[$field], 'lm_license_status');
+                } elseif ($field === 'license_type') {
+                    wp_set_object_terms($license_id, $data[$field], 'lm_license_type');
+                }
+            }
+        }
+        
+        return $license_id;
+    }
+    
+    /**
+     * Delete license
+     */
+    public function delete_license($license_id) {
+        if ($this->is_new_structure_available()) {
+            return $this->get_db_v2()->delete_license($license_id);
+        }
+        
+        // Fallback to post type method
+        $post = get_post($license_id);
+        if (!$post || $post->post_type !== 'lm_license') {
+            return new WP_Error('license_not_found', 'License not found');
+        }
+        
+        $result = wp_delete_post($license_id, true);
+        return $result !== false;
+    }
+    
+    /**
      * Get dashboard statistics
      */
     public function get_dashboard_stats() {
