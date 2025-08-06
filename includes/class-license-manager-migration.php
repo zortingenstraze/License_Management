@@ -201,17 +201,27 @@ class License_Manager_Migration {
         ) $charset_collate;";
         
         // Execute table creation
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        
         $tables = array(
-            'customers' => $customers_sql,
-            'packages' => $packages_sql, // Create packages first (no dependencies)
-            'licenses' => $licenses_sql,
-            'payments' => $payments_sql,
-            'modules' => $modules_sql,
-            'settings' => $settings_sql,
-            'license_modules' => $license_modules_sql
+            'customers' => $customers_sql,     // No dependencies
+            'packages' => $packages_sql,      // No dependencies  
+            'modules' => $modules_sql,        // No dependencies
+            'settings' => $settings_sql,      // No dependencies
+            'licenses' => $licenses_sql,      // Depends on customers and packages
+            'payments' => $payments_sql,      // Depends on licenses and customers
+            'license_modules' => $license_modules_sql // Depends on licenses and modules
         );
+        
+        if (!function_exists('dbDelta')) {
+            $upgrade_file = ABSPATH . 'wp-admin/includes/upgrade.php';
+            if (file_exists($upgrade_file)) {
+                require_once($upgrade_file);
+            } else {
+                error_log('License Manager: wp-admin/includes/upgrade.php not found, falling back to manual table creation');
+                // Fallback to manual table creation if upgrade.php is not available
+                $this->create_tables_manually($tables);
+                return;
+            }
+        }
         
         foreach ($tables as $table_name => $sql) {
             error_log("License Manager: Creating table $table_name");
@@ -385,9 +395,40 @@ class License_Manager_Migration {
     }
     
     /**
+     * Fallback manual table creation when dbDelta is not available
+     */
+    private function create_tables_manually($tables) {
+        global $wpdb;
+        
+        foreach ($tables as $table_name => $sql) {
+            error_log("License Manager: Creating table $table_name manually");
+            
+            $result = $wpdb->query($sql);
+            
+            if ($result === false) {
+                error_log("License Manager: Failed to create table $table_name: " . $wpdb->last_error);
+            } else {
+                error_log("License Manager: Successfully created table $table_name");
+            }
+        }
+        
+        // Create default settings
+        $this->create_default_settings();
+        
+        // Create default modules
+        $this->create_default_modules();
+    }
+    
+    /**
      * Migrate existing data from WordPress post types to new tables
      */
     public function migrate_existing_data() {
+        // Check if WordPress functions are available
+        if (!function_exists('get_posts')) {
+            error_log('License Manager: WordPress functions not available, skipping data migration');
+            return;
+        }
+        
         error_log('License Manager: Starting data migration from WordPress post types');
         
         $this->migrate_customers();
