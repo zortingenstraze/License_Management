@@ -35,7 +35,7 @@ class Insurance_CRM_License_API {
      */
     public function __construct() {
         $this->license_server_url = get_option('insurance_crm_license_server_url', 'https://balkay.net/crm');
-        $this->timeout = 30;
+        $this->timeout = 60; // Increased timeout for better reliability
         $this->debug_mode = get_option('insurance_crm_license_debug_mode', false);
     }
 
@@ -63,60 +63,48 @@ class Insurance_CRM_License_API {
             'domain' => sanitize_text_field($domain)
         );
 
-        // Öncelikle çalıştığı doğrulanan endpoint'i dene
+        // Try only the primary working endpoint first
         $primary_endpoint = '/api/validate_license';
         
-        error_log('[LISANS DEBUG] Birincil endpoint deneniyor: ' . $primary_endpoint);
+        if ($this->debug_mode) {
+            error_log('[LISANS DEBUG] Birincil endpoint deneniyor: ' . $primary_endpoint);
+        }
+        
         $response = $this->make_request($primary_endpoint, $request_data, 'GET');
         
         if (!is_wp_error($response)) {
-            error_log('[LISANS DEBUG] Birincil endpoint başarılı: ' . $primary_endpoint);
+            if ($this->debug_mode) {
+                error_log('[LISANS DEBUG] Birincil endpoint başarılı: ' . $primary_endpoint);
+            }
             return $response;
         }
         
-        error_log('[LISANS DEBUG] Birincil endpoint başarısız: ' . $response->get_error_message());
+        // Log error but don't show to user
+        if ($this->debug_mode) {
+            error_log('[LISANS DEBUG] Birincil endpoint başarısız: ' . $response->get_error_message());
+        }
 
-        // Yedek endpoint'leri dene
-        $fallback_endpoints = array(
-            '/wp-json/balkay-license/v1/validate',  // WordPress REST API pattern
-            '/wp-admin/admin-ajax.php',             // WordPress AJAX pattern
-            '/?action=validate_license',            // Query parameter pattern
-        );
-
-        $last_error = $response;
+        // Try only one reliable fallback endpoint
+        $fallback_endpoint = '/?action=validate_license';
         
-        foreach ($fallback_endpoints as $endpoint) {
-            error_log('[LISANS DEBUG] Yedek endpoint deneniyor: ' . $endpoint);
-            
-            if ($endpoint === '/wp-admin/admin-ajax.php') {
-                // WordPress AJAX requires different data structure
-                $ajax_data = array_merge($request_data, array('action' => 'validate_license'));
-                $response = $this->make_request($endpoint, $ajax_data, 'POST');
-            } elseif ($endpoint === '/?action=validate_license') {
-                // Query parameter method
-                $response = $this->make_request($endpoint, $request_data, 'GET');
-            } else {
-                // Standard API call
-                $response = $this->make_request($endpoint, $request_data, 'POST');
+        if ($this->debug_mode) {
+            error_log('[LISANS DEBUG] Yedek endpoint deneniyor: ' . $fallback_endpoint);
+        }
+        
+        $response = $this->make_request($fallback_endpoint, $request_data, 'GET');
+        
+        if (!is_wp_error($response)) {
+            if ($this->debug_mode) {
+                error_log('[LISANS DEBUG] Yedek endpoint başarılı: ' . $fallback_endpoint);
             }
-            
-            if (!is_wp_error($response)) {
-                error_log('[LISANS DEBUG] Yedek endpoint başarılı: ' . $endpoint);
-                return $response;
-            } else {
-                $last_error = $response;
-                error_log('[LISANS DEBUG] Yedek endpoint başarısız: ' . $endpoint . ' - ' . $response->get_error_message());
+            return $response;
+        } else {
+            if ($this->debug_mode) {
+                error_log('[LISANS DEBUG] Yedek endpoint başarısız: ' . $fallback_endpoint . ' - ' . $response->get_error_message());
             }
         }
         
-        // If all endpoints failed, return the last error
-        if (is_wp_error($last_error)) {
-            return array(
-                'status' => 'error',
-                'message' => 'Tüm API endpoint\'leri başarısız oldu. Son hata: ' . $last_error->get_error_message()
-            );
-        }
-
+        // Return error silently without exposing details to UI
         return array(
             'status' => 'error',
             'message' => 'Sunucu ile iletişim kurulamadı'
@@ -192,7 +180,7 @@ class Insurance_CRM_License_API {
             'domain' => sanitize_text_field($domain)
         );
 
-        // Öncelikle çalışan endpoint'i dene
+        // Try primary endpoint first
         $primary_endpoint = '/api/validate_license';
         $response = $this->make_request($primary_endpoint, $request_data, 'GET');
         
@@ -200,30 +188,15 @@ class Insurance_CRM_License_API {
             return $response;
         }
 
-        // Yedek endpoint'leri dene
-        $fallback_endpoints = array(
-            '/wp-json/balkay-license/v1/status',
-            '/api/check_status',
-            '/wp-admin/admin-ajax.php',
-            '/?action=check_status',
-        );
-
-        foreach ($fallback_endpoints as $endpoint) {
-            if ($endpoint === '/wp-admin/admin-ajax.php') {
-                $ajax_data = array_merge($request_data, array('action' => 'check_license_status'));
-                $response = $this->make_request($endpoint, $ajax_data, 'POST');
-            } elseif ($endpoint === '/?action=check_status') {
-                $response = $this->make_request($endpoint, $request_data, 'GET');
-            } else {
-                $response = $this->make_request($endpoint, $request_data, 'POST');
-            }
-            
-            if (!is_wp_error($response)) {
-                return $response;
-            }
+        // Try one fallback endpoint
+        $fallback_endpoint = '/?action=check_status';
+        $response = $this->make_request($fallback_endpoint, $request_data, 'GET');
+        
+        if (!is_wp_error($response)) {
+            return $response;
         }
         
-        // In case of communication error, return last known status
+        // In case of communication error, return last known status without error details
         $last_status = get_option('insurance_crm_license_status', 'inactive');
         return array(
             'status' => $last_status,
@@ -269,22 +242,28 @@ class Insurance_CRM_License_API {
             }
         }
 
-        // Her zaman debug bilgilerini logla
-        error_log('[LISANS DEBUG] İstek URL: ' . $url);
-        error_log('[LISANS DEBUG] İstek Metodu: ' . $method);
-        error_log('[LISANS DEBUG] İstek Verisi: ' . json_encode($data));
-        error_log('[LISANS DEBUG] İstek Başlıkları: ' . json_encode($args['headers']));
+        // Log debug information only in debug mode
+        if ($this->debug_mode) {
+            error_log('[LISANS DEBUG] İstek URL: ' . $url);
+            error_log('[LISANS DEBUG] İstek Metodu: ' . $method);
+            error_log('[LISANS DEBUG] İstek Verisi: ' . json_encode($data));
+            error_log('[LISANS DEBUG] İstek Başlıkları: ' . json_encode($args['headers']));
+        }
 
         $response = wp_remote_request($url, $args);
         
         if (is_wp_error($response)) {
             $error_message = $response->get_error_message();
-            error_log('[LISANS HATA] API İsteği Başarısız: ' . $error_message);
             
-            // Daha detaylı hata mesajı
+            // Only log in debug mode
+            if ($this->debug_mode) {
+                error_log('[LISANS HATA] API İsteği Başarısız: ' . $error_message);
+            }
+            
+            // Return generic error without exposing details
             return new WP_Error(
                 'api_connection_error',
-                sprintf('Lisans sunucusuna bağlanılamadı: %s (URL: %s)', $error_message, $url)
+                'Lisans sunucusuna bağlanılamadı'
             );
         }
 
@@ -292,60 +271,73 @@ class Insurance_CRM_License_API {
         $response_body = wp_remote_retrieve_body($response);
         $response_headers = wp_remote_retrieve_headers($response);
 
-        // Her zaman response bilgilerini logla
-        error_log('[LISANS DEBUG] Yanıt Kodu: ' . $response_code);
-        error_log('[LISANS DEBUG] Yanıt Boyutu: ' . strlen($response_body) . ' byte');
-        error_log('[LISANS DEBUG] Yanıt İçeriği (ilk 500 karakter): ' . substr($response_body, 0, 500));
-        error_log('[LISANS DEBUG] Yanıt Başlıkları: ' . json_encode($response_headers));
+        // Log response information only in debug mode
+        if ($this->debug_mode) {
+            error_log('[LISANS DEBUG] Yanıt Kodu: ' . $response_code);
+            error_log('[LISANS DEBUG] Yanıt Boyutu: ' . strlen($response_body) . ' byte');
+            error_log('[LISANS DEBUG] Yanıt İçeriği (ilk 500 karakter): ' . substr($response_body, 0, 500));
+            error_log('[LISANS DEBUG] Yanıt Başlıkları: ' . json_encode($response_headers));
+        }
 
-        // Başarılı HTTP kodlarını genişlet
+        // Handle HTTP errors silently
         $successful_codes = array(200, 201, 202);
         if (!in_array($response_code, $successful_codes)) {
-            error_log('[LISANS HATA] HTTP Hatası: ' . $response_code);
+            // Only log in debug mode
+            if ($this->debug_mode) {
+                error_log('[LISANS HATA] HTTP Hatası: ' . $response_code);
+            }
             
-            // 404 hatası özel olarak işle
+            // Return generic errors without exposing technical details
             if ($response_code == 404) {
                 return new WP_Error(
                     'api_endpoint_not_found',
-                    sprintf('API endpoint bulunamadı (404): %s', $url)
+                    'API endpoint bulunamadı'
                 );
             }
             
             return new WP_Error(
                 'api_http_error',
-                sprintf('Lisans sunucusundan HTTP hatası (Kod: %d): %s', $response_code, substr($response_body, 0, 200))
+                'Lisans sunucusundan HTTP hatası'
             );
         }
 
-        // Boş yanıt kontrolü
+        // Handle empty responses silently
         if (empty($response_body)) {
-            error_log('[LISANS HATA] Boş yanıt alındı');
+            if ($this->debug_mode) {
+                error_log('[LISANS HATA] Boş yanıt alındı');
+            }
             return new WP_Error(
                 'api_empty_response',
                 'Lisans sunucusundan boş yanıt alındı'
             );
         }
 
-        // HTML yanıt kontrolü (JSON bekliyoruz)
+        // Handle HTML responses silently (expected JSON)
         if (strpos($response_body, '<!DOCTYPE') === 0 || strpos($response_body, '<html') !== false) {
-            error_log('[LISANS HATA] HTML yanıt alındı, JSON bekliyordu');
+            if ($this->debug_mode) {
+                error_log('[LISANS HATA] HTML yanıt alındı, JSON bekliyordu');
+            }
             return new WP_Error(
                 'api_html_response',
-                'Sunucu HTML yanıt döndürdü, JSON bekliyordu. Bu endpoint mevcut değil olabilir.'
+                'Sunucu HTML yanıt döndürdü, JSON bekliyordu'
             );
         }
 
         $decoded_response = json_decode($response_body, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log('[LISANS HATA] JSON Parse Hatası: ' . json_last_error_msg());
+            if ($this->debug_mode) {
+                error_log('[LISANS HATA] JSON Parse Hatası: ' . json_last_error_msg());
+            }
             return new WP_Error(
                 'json_parse_error',
-                sprintf('Sunucu yanıtı çözümlenemedi (JSON Hatası: %s): %s', json_last_error_msg(), substr($response_body, 0, 200))
+                'Sunucu yanıtı çözümlenemedi'
             );
         }
 
-        error_log('[LISANS DEBUG] Başarılı yanıt alındı: ' . json_encode($decoded_response));
+        if ($this->debug_mode) {
+            error_log('[LISANS DEBUG] Başarılı yanıt alındı: ' . json_encode($decoded_response));
+        }
         return $decoded_response;
     }
 
@@ -407,7 +399,7 @@ class Insurance_CRM_License_API {
         error_log('[LISANS DEBUG] Temel bağlantı testi başlatılıyor: ' . $server_url);
         
         $response = wp_remote_get($server_url, array(
-            'timeout' => 15,
+            'timeout' => 30, // Increased timeout for connection test
             'sslverify' => false,
             'redirection' => 5
         ));
@@ -439,7 +431,7 @@ class Insurance_CRM_License_API {
         foreach ($endpoints_to_test as $endpoint) {
             $test_url = rtrim($server_url, '/') . $endpoint;
             $test_response = wp_remote_get($test_url, array(
-                'timeout' => 10,
+                'timeout' => 20, // Increased timeout for endpoint tests
                 'sslverify' => false
             ));
             
@@ -463,7 +455,7 @@ class Insurance_CRM_License_API {
         
         // Test 3: Check if it's a WordPress site
         $wp_json_url = rtrim($server_url, '/') . '/wp-json/wp/v2';
-        $wp_response = wp_remote_get($wp_json_url, array('timeout' => 10, 'sslverify' => false));
+        $wp_response = wp_remote_get($wp_json_url, array('timeout' => 20, 'sslverify' => false));
         
         if (!is_wp_error($wp_response) && wp_remote_retrieve_response_code($wp_response) == 200) {
             $results['is_wordpress'] = true;
